@@ -19,7 +19,7 @@ def test_syn_ok_pattern_block_1():
     stil_file = get_stil_file("syn_ok_pattern_block_1.stil")
 
     parser = STILParser(stil_file)
-    parser.parse_syntax()
+    parser.parse_syntax(debug=True)
     assert parser.err_line == -1
     assert parser.err_col == -1
 
