@@ -1,5 +1,27 @@
 HEADER
-     ;
+     si1,si2,so1,so2,sio1,sio2;
 
 SPM_PATTERN (SCAN) {
+       *XXXXXX* ;
+       *PPLLPL* C;wft;
+       *PPLLPL* F;
+       *PPLLPL* V;
+       *XXXXXX* Call proc;
+       *XXXXXX* Macro macro_z;
+       *PPLLPL* Call proc;
+       *PPLLPL* Macro macro_z;
+       *PPLLPL* Loop 123;
+       *PPLLPL* RETURN;
+       *PPLLPL* MatchLoop 123;
+       *PPLLPL* RETURN;
+       *PPLLPL* MatchLoop Infinite;
+       *PPLLPL* RETURN;
+       *XXXXXX* Goto test;
+       *XXXXXX* BreakPoint;
+       *XXXXXX* BreakPoint;
+       *XXXXXX* IDDQTestPoint;
+       *XXXXXX* Stop;
+       *XXXXXX* ScanChain chain;
+       *PPLLPL* V;
+       *XXXXXX* ;
 }

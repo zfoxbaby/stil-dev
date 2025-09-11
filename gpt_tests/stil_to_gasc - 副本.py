@@ -60,22 +60,14 @@ def extract_signals(tree: Tree) -> List[str]:
     return signals
 
 
-def extract_pattern_lines(tree: Tree, signal_count: int) -> List[PatternLine]:
-    """Extract pattern lines (vector + micro-instruction + waveform)."""
+def extract_pattern_lines(tree: Tree) -> List[PatternLine]:
+    """Extract vector data together with micro-instruction and waveform info."""
     lines: List[PatternLine] = []
     current_wft = ""
-    wft_pending = False
+    pending_instr = ""
 
-    def emit(vec: str, instr: str) -> None:
-        nonlocal wft_pending
-        wft = current_wft if wft_pending else ""
-        if wft_pending:
-            wft_pending = False
-        lines.append(PatternLine(vec=vec, instr=instr, wft=wft))
-
-    # get Tree under b_pattern__pattern_statements_
-    def process(node: Tree) -> None:
-        nonlocal current_wft, wft_pending
+    def walk(node: Tree) -> None:
+        nonlocal current_wft, pending_instr, lines
 
         if not isinstance(node, Tree):
             return
@@ -84,53 +76,45 @@ def extract_pattern_lines(tree: Tree, signal_count: int) -> List[PatternLine]:
 
         if data.endswith("pattern_statement"):
             for child in node.children:
-                process(child)
+                walk(child)
             return
 
         if data.endswith("w_stmt"):
-            tokens = [t.value for t in node.children if isinstance(t, Token)]
+            tokens = [t.value for t in node.scan_values(lambda c: isinstance(c, Token))]
             if len(tokens) >= 2:
                 current_wft = tokens[1]
-                wft_pending = True
             return
 
-        micro_tokens = [c.value for c in node.children if isinstance(c, Token)][:2]
-        micro = " ".join(micro_tokens)
-        # get Tree under b_pattern__pattern_statements_
-        has_vec = any(isinstance(ch, Tree) and ch.data.endswith("vec_block") for ch in node.children)
-        nested = [ch for ch in node.children if isinstance(ch, Tree) and ch.data.endswith("pattern_statement")]
-
-        if has_vec:
-            vec = ""
-            for vb in node.iter_subtrees():
-                if isinstance(vb, Tree) and vb.data.endswith("vec_data_block"):
-                    vec_tokens = [t.value for t in vb.scan_values(lambda c: isinstance(c, Token))]
-                    if vec_tokens:
-                        vec = vec_tokens[-1].strip()
-                        break
-            emit(vec, micro)
+        if data.endswith("call_stmt") or data.endswith("macro_stmt") or data.endswith("l_stmt") \
+           or data.endswith("ml_stmt") or data.endswith("g_stmt") or data.endswith("b_stmt") \
+           or data.endswith("i_stmt") or data.endswith("s_stmt") or data.endswith("sc_stmt"):
+            tokens = [t.value for t in node.scan_values(lambda c: isinstance(c, Token))]
+            pending_instr = " ".join(tokens)
+            for child in node.children:
+                walk(child)
             return
 
-        if nested:
-            start_idx = len(lines)
-            for child in nested:
-                process(child)
-            end_idx = len(lines)
-            if start_idx < end_idx:
-                lines[start_idx].instr = micro
-                lines[end_idx - 1].instr = "RETURN"
+        if data.endswith("v_stmt") or data.endswith("c_stmt") or data.endswith("f_stmt"):
+            for vec_block in node.iter_subtrees():
+                if isinstance(vec_block, Tree) and vec_block.data.endswith("vec_data_block"):
+                    tokens = [t.value for t in vec_block.scan_values(lambda c: isinstance(c, Token))]
+                    if tokens:
+                        vec_data = tokens[-1]
+                        lines.append(PatternLine(vec=vec_data,
+                                                 instr=pending_instr,
+                                                 wft=current_wft))
+                        pending_instr = ""
             return
 
-        vec = "X" * signal_count
-        emit(vec, micro)
+        for child in node.children:
+            walk(child)
 
     for block in tree.iter_subtrees():
         if isinstance(block, Tree) and block.data.endswith("pattern_block"):
             for stmt in block.children:
-                process(stmt) # The children of b_pattern__pattern_statement
+                walk(stmt)
 
     return lines
-
 
 
 def convert(stil_path: str, gasc_path: str) -> None:
@@ -138,7 +122,7 @@ def convert(stil_path: str, gasc_path: str) -> None:
     tree = parser.parse_syntax(debug=True)
 
     signals = extract_signals(tree)
-    patt_lines = extract_pattern_lines(tree, len(signals))
+    patt_lines = extract_pattern_lines(tree)
 
     with open(gasc_path, "w", encoding="utf-8") as fh:
         fh.write("HEADER\n")
@@ -163,5 +147,5 @@ def main(argv: List[str]) -> int:
 if __name__ == "__main__":  # pragma: no cover - simple CLI wrapper
     sys.argv = ["stil_to_gasc.py", 
             "tests/stil_files/pattern_block/syn_ok_pattern_block_1.stil", 
-            "gpt_tests/result.gasc"]
+            "tests/result.gasc"]
     raise SystemExit(main(sys.argv))
