@@ -1,0 +1,41 @@
+%import base.USER_DEFINED_NAME
+%import base.ANN_TEXT
+
+//pattern_exec_block :  "PatternExec"     PATTERN_EXEC_BLOCK_NAME? "{"               patt_exec_statements "}"
+  pattern_exec_block :  KEYWORD_PATT_EXEC PATTERN_EXEC_BLOCK_NAME? open_pattern_exec_block patt_exec_statements close_pattern_exec_block
+  KEYWORD_PATT_EXEC   : "PatternExec"                        
+
+PATTERN_EXEC_BLOCK_NAME :  USER_DEFINED_NAME 
+
+open_pattern_exec_block :  "{" 
+
+    patt_exec_statements: ( pes_category | pes_selelector | pes_timing | pes_patt_burst | annotation)*
+    
+//  pes_category        : "Category"        category_name ";"
+    pes_category        : KEYWORD_CATEGORY  category_name ";"
+    KEYWORD_CATEGORY    : "Category"
+    category_name       :  USER_DEFINED_NAME 
+
+//  pes_selelector      : "Selector"        selector_name ";"
+    pes_selelector      : KEYWORD_SELECTOR  selector_name ";"
+    KEYWORD_SELECTOR    : "Selector"
+    selector_name       :  USER_DEFINED_NAME 
+
+//  pes_timing          : "Timing"          TIMING_DOMAIN ";"
+    pes_timing          : KEYWORD_TIMING    TIMING_DOMAIN ";"
+    KEYWORD_TIMING      : "Timing"
+    TIMING_DOMAIN       :  USER_DEFINED_NAME 
+
+//  pes_patt_burst      : "PatternBurst"        pattern_burst_name ";"
+    pes_patt_burst      : KEYWORD_PATTREN_BURST PATTERN_BURST_NAME ";"
+    KEYWORD_PATTREN_BURST : "PatternBurst"
+    PATTERN_BURST_NAME  :  USER_DEFINED_NAME 
+
+close_pattern_exec_block :  "}" 
+
+annotation: KEYWORD_ANN open_ann_block (ANN_TEXT)* close_ann_block
+KEYWORD_ANN: "Ann"
+    
+open_ann_block  : "{*"
+ANNO_TEXT        : ANN_TEXT
+close_ann_block : "*}"

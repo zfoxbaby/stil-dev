@@ -1,0 +1,53 @@
+%import base.NUMBER
+%import base.IDENTIFIER
+%import base.ANN_TEXT
+
+
+%import common.ESCAPED_STRING
+
+//header_block : "Header"       "{"               (header_list)* "}"
+  header_block : KEYWORD_HEADER open_header_block (header_list)* close_header_block
+
+KEYWORD_HEADER : "Header"
+
+open_header_block : "{"
+
+    header_list : (title | date | source | history | annotation_header)
+    
+//  title       : "Title"           TITLE_STRING  ";" 
+    title       : KEYWORD_TITLE     TITLE_STRING  ";" 
+    KEYWORD_TITLE: "Title"
+    
+    TITLE_STRING : ESCAPED_STRING
+    
+//  date        : "Date"            HEADER_DATE_STRING     ";" 
+    date        : KEYWORD_DATE      HEADER_DATE_STRING     ";" 
+    KEYWORD_DATE: "Date"
+
+    HEADER_DATE_STRING : ESCAPED_STRING
+    
+//  source      : "Source"          SOURCE_STRING  ";" 
+    source      : KEYWORD_SOURCE    SOURCE_STRING  ";" 
+    KEYWORD_SOURCE: "Source"
+
+    SOURCE_STRING : ESCAPED_STRING
+    
+//  history     : "History"       "{"                (annotation_hist)* "}"
+    history     : KEYWORD_HISTORY open_history_block (annotation_hist)* close_history_block
+    KEYWORD_HISTORY: "History"
+    
+    open_history_block : "{" 
+                
+//      annotation_hist: "Ann"       "{*"           (ANN_TEXT)* "*}"
+        annotation_hist: KEYWORD_ANN open_ann_block (ANN_TEXT)* close_ann_block
+        KEYWORD_ANN: "Ann"
+        
+            open_ann_block  : "{*"
+            ANNO_TEXT        : ANN_TEXT
+            close_ann_block : "*}"
+    close_history_block : "}"
+
+    annotation_header: KEYWORD_ANN open_ann_block (ANN_TEXT)* close_ann_block
+
+        
+close_header_block : "}"

@@ -1,0 +1,80 @@
+STIL 1.0;
+
+Signals {
+
+    sig1 In;
+    sig2 Out;
+
+}
+
+
+SignalGroups {
+    all = 'sig1+sig2';
+}
+
+Timing {
+    WaveformTable wft{
+        Period '100ns';
+             Waveforms {
+                 sig1  { 1 { '0ns' D; }}
+                 sig1  { 2 { '0ns' U; }}
+                 sig1  { Z { '0ns' Z; }}
+                 sig2  { X { '0ns' X; }}
+             }
+    }
+}
+
+PatternBurst burst{
+    MacroDefs macro_domain1;
+    Procedures proc_domain;
+    PatList { patt3; }
+    PatList { patt2; }
+    PatList { patt1; }
+}
+
+
+PatternExec {
+    PatternBurst burst;
+}
+
+MacroDefs macro_domain1{
+    macro{
+        W wft;
+        V {sig1 = Z; sig2 = X;}                
+        Shift {V {all = ##;}}      
+        V {all = 1X;}                
+    }
+}
+
+Procedures proc_domain{
+    proc{
+        W wft;
+        V {sig1 = Z; sig2 = X;}                
+        Shift {V {all = ##;}}
+        V {all = 1X;}
+    }
+}
+
+Pattern patt1{
+    W wft;
+    V {sig1 = 1; sig2 = X;}
+    Macro macro; 
+    V {sig1 = Z; sig2 = X;}
+}
+
+Pattern patt2{
+    W wft;
+    V {sig1 = 2; sig2 = X;}
+    Macro macro;
+    V {sig1 = Z; sig2 = X;}
+    V {sig1 = Z; sig2 = X;}
+    Call proc;
+    V {sig1 = Z; sig2 = X;}
+}
+
+Pattern patt3{
+    W wft;
+    V {sig1 = 2; sig2 = X;}
+    V {sig1 = Z; sig2 = X;}
+    V {sig1 = Z; sig2 = X;}
+}

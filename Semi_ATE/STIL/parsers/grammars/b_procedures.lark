@@ -1,0 +1,20 @@
+%import base.USER_DEFINED_NAME
+%import pattern_statements.pattern_statement
+%import pattern_statements.shift_statement
+
+//procedures_block : "Procedures"       [PROCEDURES_DOMAIN_NAME] "{"                   (procedure_def)* "}" 
+  procedures_block : KEYWORD_PROCEDURES [PROCEDURES_DOMAIN_NAME] open_procedures_block (procedure_def)* close_procedures_block
+  KEYWORD_PROCEDURES : "Procedures"
+  
+PROCEDURES_DOMAIN_NAME : USER_DEFINED_NAME 
+
+open_procedures_block   : "{"
+close_procedures_block  : "}"
+
+//procedure_def : procedure_name "{"       (pattern_statement | shift_statement)* "}"
+  procedure_def : PROCEDURE_NAME open_proc (pattern_statement | shift_statement)* close_proc
+
+    PROCEDURE_NAME  : USER_DEFINED_NAME 
+
+    open_proc  : "{" 
+    close_proc : "}" 

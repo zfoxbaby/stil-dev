@@ -1,0 +1,24 @@
+%import base.FLOAT
+
+stil_block : KEYWORD_STIL STIL_VERSION (SEMICOLON | stil_extension)
+
+KEYWORD_STIL : "STIL"
+
+STIL_VERSION : FLOAT
+
+stil_extension : open_stil_extension stil_extension_list close_stil_extension
+
+open_stil_extension : "{"
+
+    stil_extension_list : stil_ext+
+
+    stil_ext : STIL_EXTENSION_NAME  STIL_EXTENSION_YEAR SEMICOLON
+    
+    SEMICOLON : ";"
+    
+    STIL_EXTENSION_NAME : ("DCLevels" | "Design")
+    
+    STIL_EXTENSION_YEAR : ("2002" | "2005")
+
+close_stil_extension : "}"
+

@@ -1,0 +1,91 @@
+%import base.SIGNAL_NAME_TERMINAL
+%import base.WFC_LIST
+%import base.WFC
+%import base.INT
+%import base.ANN_TEXT
+%import base.scan_type
+
+//signals_block : "Signals"       "{"               (signals_list | annotation)+ "}"
+  signals_block : KEYWORD_SIGNALS open_signal_block (signals_list | annotation)+ close_signal_block
+
+KEYWORD_SIGNALS: "Signals"
+
+open_signal_block : "{"
+
+    signals_list : SIGNAL_NAME SIGNAL_TYPE ( SIGNAL_END_STMT | signal_attributes)
+    
+    SIGNAL_NAME: SIGNAL_NAME_TERMINAL
+    
+    SIGNAL_TYPE : KEYWORD_ST_INOUT | KEYWORD_ST_OUT | KEYWORD_ST_IN | KEYWORD_ST_SUPPLY | KEYWORD_ST_PSEUDO
+
+    KEYWORD_ST_INOUT    : "InOut"
+    KEYWORD_ST_OUT      : "Out"
+    KEYWORD_ST_IN       : "In"
+    KEYWORD_ST_SUPPLY   : "Supply"
+    KEYWORD_ST_PSEUDO   : "Pseudo"
+    
+    SIGNAL_END_STMT : ";"
+    
+//  signal_attributes : "{"                    (termination | default_state | base | alignment | scan_in | scan_out | data_bit_count | wfcmap)* "}"
+    signal_attributes : open_signal_attr_block (termination | default_state | base | alignment | scan_in | scan_out | data_bit_count | wfcmap)* close_signal_attr_block
+
+    open_signal_attr_block : "{"
+
+//      termination     : "Termination"       ("TerminateHigh" | "TerminateLow" | "TerminateOff" | "TerminateUnknown") ";" 
+        termination     : KEYWORD_TERMINATION ("TerminateHigh" | "TerminateLow" | "TerminateOff" | "TerminateUnknown") ";" 
+        KEYWORD_TERMINATION : "Termination"
+    
+//      default_state   : "DefaultState"        ("U" | "D" | "Z" | "ForceUp" | "ForceDown" | "ForceOff") ";" 
+        default_state   : KEYWORD_DEFAULT_STATE (SIG_DEF_STATE_UP | SIG_DEF_STATE_DOWN | SIG_DEF_STATE_OFF) ";" 
+        KEYWORD_DEFAULT_STATE : "DefaultState"
+        SIG_DEF_STATE_UP   : "U" | "ForceUp"
+        SIG_DEF_STATE_DOWN : "D" | "ForceDown"
+        SIG_DEF_STATE_OFF  : "Z" | "ForceOff"
+    
+//      base            : "Base"       ("Hex" | "Dec") WFC_LIST ";" 
+        base            : KEYWORD_BASE ("Hex" | "Dec") WFC_LIST ";" 
+        KEYWORD_BASE : "Base"
+    
+//      alignment       : "Alignment"       ("MSB" | "LSB") ";" 
+        alignment       : KEYWORD_ALIGNMENT ("MSB" | "LSB") ";" 
+        KEYWORD_ALIGNMENT : "Alignment"
+    
+//      scan_in         : "ScanIn"       [INT] ";" 
+        scan_in         : KEYWORD_SCANIN [INT] ";" 
+        KEYWORD_SCANIN : "ScanIn"
+    
+//      scan_out        : "ScanOut"       [INT] ";" 
+        scan_out        : KEYWORD_SCANOUT [INT] ";" 
+        KEYWORD_SCANOUT : "ScanOut"
+    
+//      data_bit_count  : "DataBitCount"       INT ";" 
+        data_bit_count  : KEYWORD_DATABITCOUNT INT ";" 
+        KEYWORD_DATABITCOUNT : "DataBitCount"
+        
+//      wfcmap from IEEE 1450.1 Design
+        wfcmap  : KEYWORD_WFCMAP open_wfcmap_block (one2many | two2one)* close_wfcmap_block
+        KEYWORD_WFCMAP: "WFCMap"
+    
+        one2many : WFC "->" WFC_LIST ";"
+        two2one : WFC (WFC) "->" WFC ";"
+    
+        open_wfcmap_block : "{"
+        close_wfcmap_block : "}"
+
+
+    close_signal_attr_block : "}"
+    
+    
+    annotation: KEYWORD_ANN open_ann_block (ANN_TEXT)* close_ann_block
+    KEYWORD_ANN: "Ann"
+        
+    open_ann_block  : "{*"
+    ANNO_TEXT        : ANN_TEXT
+    close_ann_block : "*}"
+
+
+close_signal_block : "}"
+
+
+
+

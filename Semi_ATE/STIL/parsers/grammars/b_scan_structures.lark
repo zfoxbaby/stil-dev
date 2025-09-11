@@ -1,0 +1,113 @@
+%import base.INT
+%import base.USER_DEFINED_NAME
+%import base.scan_type
+%import base.annotation
+%import base.user_keyword_stmt
+
+//scan_structures_block : "ScanStructures"    [SCAN_STRUCTURES_DOMAIN_NAME] "{"                        (scan_chains | scan_chain_groups)*  "}"
+  scan_structures_block : KEYWORD_SCAN_STRUCT [SCAN_STRUCTURES_DOMAIN_NAME] open_scan_structures_block (scan_chains | scan_chain_groups)*  close_scan_structures_block
+
+KEYWORD_SCAN_STRUCT : "ScanStructures" 
+
+open_scan_structures_block: "{" 
+
+SCAN_STRUCTURES_DOMAIN_NAME : USER_DEFINED_NAME 
+
+//  scan_chains : "ScanChain"       scan_chain_name "{"                   (scan_chain_items)+ "}"
+    scan_chains : KEYWORD_SCANCHAIN scan_chain_name open_scan_chain_block (scan_chain_items)+ close_scan_chain_block
+    KEYWORD_SCANCHAIN : "ScanChain"
+
+    scan_chain_name : USER_DEFINED_NAME 
+                    
+    open_scan_chain_block : "{" 
+    close_scan_chain_block : "}" 
+    
+        scan_chain_items : [          scan_enable
+                                    | scan_length         
+                                    | scan_out_length     
+                                    | scan_cells          
+                                    | scan_cell_type      
+                                    | scan_in             
+                                    | scan_out            
+                                    | scan_master_clock   
+                                    | scan_slave_clock    
+                                    | scan_inversion 
+                                    | user_keyword_stmt
+                                    | annotation]
+
+//      scan_enable : "ScanEnable"        USER_DEFINED_NAME ("&"|"~"|"\|"|"^") USER_DEFINED_NAME
+        scan_enable : KEYWORD_SCAN_ENABLE USER_DEFINED_NAME ("&"|"~"|"\|"|"^") USER_DEFINED_NAME
+        KEYWORD_SCAN_ENABLE : "ScanEnable" 
+
+//      scan_length : "ScanLength"        INT ";"
+        scan_length : KEYWORD_SCAN_LENGTH INT ";"
+        KEYWORD_SCAN_LENGTH : "ScanLength" 
+        
+//      scan_out_length : "ScanOutLength"         INT ";" 
+        scan_out_length : KEYWORD_SCAN_OUT_LENGTH INT ";" 
+        KEYWORD_SCAN_OUT_LENGTH : "ScanOutLength"
+        
+//      scan_cell_type : "ScanCellType"         [USER_DEFINED_NAME] "{"                       (cell)+ "}"
+        scan_cell_type : KEYWORD_SCAN_CELL_TYPE [USER_DEFINED_NAME] open_scan_cell_type (cell)+ close_scan_cell_type
+        KEYWORD_SCAN_CELL_TYPE : "ScanCellType"
+        
+        open_scan_cell_type : "{"
+        
+//          cell : ["CellIn" | "CellOut"]                ["!"] USER_DEFINED_NAME ";" 
+            cell : [KEYWORD_CELL_IN | KEYWORD_CELL_OUT]  ["!"] USER_DEFINED_NAME ";" 
+            KEYWORD_CELL_IN : "CellIn"
+            KEYWORD_CELL_OUT : "CellOut"
+            
+        close_scan_cell_type: "}"
+        
+//      scan_cells : "ScanCells"       (block_scan_cells | none_block_scan_cells)
+        scan_cells : KEYWORD_SCAN_CELL (block_scan_cells | none_block_scan_cells)
+        KEYWORD_SCAN_CELL : "ScanCells"
+        
+//      block_scan_cells: "{"             (none_block_scan_cells)* "}"
+        block_scan_cells: open_scan_cells (none_block_scan_cells)* close_scan_cells
+        open_scan_cells : "{"
+            none_block_scan_cells:  ((USER_DEFINED_NAME | "!")* ";")
+        close_scan_cells : "}"
+        
+//      scan_in             : "ScanIn"                  USER_DEFINED_NAME ";" 
+        scan_in             : KEYWORD_SCAN_IN           USER_DEFINED_NAME ";" 
+        KEYWORD_SCAN_IN : "ScanIn"
+        
+        
+//      scan_out            : "ScanOut"                 USER_DEFINED_NAME ";" 
+        scan_out            : KEYWORD_SCAN_OUT          USER_DEFINED_NAME ";" 
+        KEYWORD_SCAN_OUT : "ScanOut"
+        
+//      scan_master_clock   : "ScanMasterClock"         USER_DEFINED_NAME ";" 
+        scan_master_clock   : KEYWORD_SCAN_MASTER_CLOCK (USER_DEFINED_NAME)* ";" 
+        KEYWORD_SCAN_MASTER_CLOCK : "ScanMasterClock"
+        
+//      scan_slave_clock    : "ScanSlaveClock"          USER_DEFINED_NAME ";" 
+        scan_slave_clock    : KEYWORD_SCAN_SLAVE_CLOCK  (USER_DEFINED_NAME)* ";" 
+        KEYWORD_SCAN_SLAVE_CLOCK : "ScanSlaveClock"
+        
+//      scan_inversion      : "ScanInversion"           ("0"|"1") ";" 
+        scan_inversion      : KEYWORD_SCAN_INVERSION    ("0"|"1") ";" 
+        KEYWORD_SCAN_INVERSION : "ScanInversion"
+                
+
+
+//  scan_chain_groups : "ScanChainGroups"   [USER_DEFINED_NAME] "{"                   (scan_chain_group_items)+ "}" 
+    scan_chain_groups : KEYWORD_SCAN_GROUPS [USER_DEFINED_NAME] open_scan_chain_groups (scan_chain_group_items)+ close_scan_chain_groups 
+    KEYWORD_SCAN_GROUPS : "ScanChainGroups"
+    
+    open_scan_chain_groups : "{"
+    
+//      scan_chain_group_items : USER_DEFINED_NAME "{"           (scgi)+ "}"
+        scan_chain_group_items : USER_DEFINED_NAME open_scg_item (scgi)+ close_scg_item 
+        
+        open_scg_item : "{"
+        
+        scgi : USER_DEFINED_NAME ";" 
+        
+        close_scg_item : "}"
+    
+    close_scan_chain_groups : "}"
+
+close_scan_structures_block : "}" 
