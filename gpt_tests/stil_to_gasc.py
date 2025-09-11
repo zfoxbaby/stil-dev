@@ -66,29 +66,54 @@ def extract_pattern_lines(tree: Tree) -> List[PatternLine]:
     current_wft = ""
     pending_instr = ""
 
-    # Walk through pattern statements in order.
-    for block in tree.find_data("pattern_block"):
-        for stmt in block.children:
-            if not isinstance(stmt, Tree):
-                continue
-            if stmt.data == "w_stmt":
-                # W <waveform_table_name> ;
-                for child in stmt.children:
-                    if isinstance(child, Token):
-                        current_wft = child.value
-            elif stmt.data in ("call_stmt", "macro_stmt", "l_stmt", "ml_stmt",
-                               "g_stmt", "b_stmt", "i_stmt", "s_stmt", "sc_stmt"):
-                tokens = [c.value for c in stmt.children if isinstance(c, Token)]
-                pending_instr = " ".join(tokens)
-            elif stmt.data in ("v_stmt", "c_stmt", "f_stmt"):
-                # Vector statements may contain multiple vec_data_block entries.
-                for vec_block in stmt.find_data("vec_data_block"):
-                    vec_token = vec_block.children[1]
-                    vec_data = vec_token.value.strip() if isinstance(vec_token, Token) else ""
-                    lines.append(PatternLine(vec=vec_data,
-                                             instr=pending_instr,
-                                             wft=current_wft))
-                    pending_instr = ""
+    def walk(node: Tree) -> None:
+        nonlocal current_wft, pending_instr, lines
+
+        if not isinstance(node, Tree):
+            return
+
+        data = node.data
+
+        if data.endswith("pattern_statement"):
+            for child in node.children:
+                walk(child)
+            return
+
+        if data.endswith("w_stmt"):
+            tokens = [t.value for t in node.scan_values(lambda c: isinstance(c, Token))]
+            if len(tokens) >= 2:
+                current_wft = tokens[1]
+            return
+
+        if data.endswith("call_stmt") or data.endswith("macro_stmt") or data.endswith("l_stmt") \
+           or data.endswith("ml_stmt") or data.endswith("g_stmt") or data.endswith("b_stmt") \
+           or data.endswith("i_stmt") or data.endswith("s_stmt") or data.endswith("sc_stmt"):
+            tokens = [t.value for t in node.scan_values(lambda c: isinstance(c, Token))]
+            pending_instr = " ".join(tokens)
+            for child in node.children:
+                walk(child)
+            return
+
+        if data.endswith("v_stmt") or data.endswith("c_stmt") or data.endswith("f_stmt"):
+            for vec_block in node.iter_subtrees():
+                if isinstance(vec_block, Tree) and vec_block.data.endswith("vec_data_block"):
+                    tokens = [t.value for t in vec_block.scan_values(lambda c: isinstance(c, Token))]
+                    if tokens:
+                        vec_data = tokens[-1]
+                        lines.append(PatternLine(vec=vec_data,
+                                                 instr=pending_instr,
+                                                 wft=current_wft))
+                        pending_instr = ""
+            return
+
+        for child in node.children:
+            walk(child)
+
+    for block in tree.iter_subtrees():
+        if isinstance(block, Tree) and block.data.endswith("pattern_block"):
+            for stmt in block.children:
+                walk(stmt)
+
     return lines
 
 
