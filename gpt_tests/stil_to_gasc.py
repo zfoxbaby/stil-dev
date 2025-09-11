@@ -52,7 +52,8 @@ class PatternLine:
 def extract_signals(tree: Tree) -> List[str]:
     """Return a list with all signal names declared in the STIL file."""
     signals: List[str] = []
-    for node in tree.find_data("signals_list"):
+    #for node in tree.find_data("signals_list"):
+    for node in tree.find_data("b_signals__signals_list"):
         token = node.children[0]
         if isinstance(token, Token):
             signals.append(token.value)
@@ -119,4 +120,7 @@ def main(argv: List[str]) -> int:
 
 
 if __name__ == "__main__":  # pragma: no cover - simple CLI wrapper
+    sys.argv = ["stil_to_gasc.py", 
+            "tests/stil_files/pattern_block/syn_ok_pattern_block_1.stil", 
+            "tests/result.gasc"]
     raise SystemExit(main(sys.argv))

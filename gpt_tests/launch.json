@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug stil_to_gasc",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/gpt_tests/stil_to_gasc.py",
+            "args": [
+                "tests/stil_files/pattern_block/syn_ok_pattern_block_1.stil",
+                "result.gasc"
+            ],
+            "console": "integratedTerminal"
+        }
+    ]
+}
