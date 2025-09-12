@@ -1,6 +1,13 @@
 HEADER
      si1,si2,so1,so2,sio1,sio2;
 
+SignalGroups {
+     all = 'si1 + si2 + so1 + so2 + sio1 + sio2';
+     si = 'si1 + si2';
+     so = 'so1 + so2';
+     sio = 'sio1 + sio2';
+}
+
 SPM_PATTERN (SCAN) {
        *XXXXXX* ;
        *PPLLPL* C;wft;
