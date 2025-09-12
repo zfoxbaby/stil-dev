@@ -57,6 +57,9 @@ class STILToGasc():
         self.current_wft = ""
         self.wft_pending = False
 
+        self.pat_header: List[str] = []
+        self.need_append_header = True
+
     def extract_signals(self, tree: Tree) -> List[str]:
         """Return a list with all signal names declared in the STIL file."""
         signals: List[str] = []
@@ -64,7 +67,7 @@ class STILToGasc():
         for node in tree.find_data("b_signals__signals_list"):
             token = node.children[0]
             if isinstance(token, Token):
-                signals.append(token.value)
+                signals.append(token.value.strip("\""))
         return signals
 
     def extract_signal_groups(self, tree: Tree) -> dict[str, List[str]]:
@@ -75,16 +78,15 @@ class STILToGasc():
             if len(tokens) < 2:
                 continue
             name = tokens[0].value
-            sigs: List[str] = [tokens[1].value]
+            sigs: List[str] = [tokens[1].value.strip("\"")]
 
             for vb in node.find_data("b_signal_groups__sigref_expr"):
                 for n in vb.children:
                     if isinstance(n, Token) and n != "+":
-                        sigs.append(n.value)
+                        sigs.append(n.value.strip("\""))
 
             groups[name] = sigs
         return groups
-
 
     def expand_vec_data(self, data: str) -> str:
         """Expand repeat directives like ``\r98 X`` inside vector data."""
@@ -110,37 +112,35 @@ class STILToGasc():
 
     # get Tree under b_pattern__pattern_statements_
     def process(self, node: Tree, lines: List[PatternLine], signal_count: int ) -> None:
-
         if not isinstance(node, Tree):
             return
-
         data = node.data
-
         if data.endswith("pattern_statement"):
             for child in node.children:
                 self.process(child, lines, signal_count)
             return
-
+        # skip annotation, open_pattern_block, close_pattern_block
         if (data.endswith("annotation")
          or data.endswith("open_pattern_block")
          or data.endswith("close_pattern_block")):
             return
-
+        # get waveform table name from w_stmt
         if data.endswith("w_stmt"):
             tokens = [t.value for t in node.children if isinstance(t, Token)]
             if len(tokens) >= 2:
                 self.current_wft = tokens[1]
                 self.wft_pending = True
             return
-
+        # get micro-instruction from pattern_statement
         micro_tokens = [c.value for c in node.children if isinstance(c, Token)][:2]
         micro = " ".join(micro_tokens)
         if micro == "V":
             micro = ""
-        # get Tree under b_pattern__pattern_statements_
+        # get vec_block Tree under b_pattern__pattern_statements_
         has_vec = any(isinstance(ch, Tree) and ch.data.endswith("vec_block") for ch in node.children)
+        # get pattern_statement Tree under b_pattern__pattern_statements_
         nested = [ch for ch in node.children if isinstance(ch, Tree) and ch.data.endswith("pattern_statement")]
-
+        # get vec_data_block Tree under b_pattern__pattern_statements_
         if has_vec:
             # record header when read first V list
             vec_parts: List[str] = []
@@ -148,11 +148,13 @@ class STILToGasc():
                 if isinstance(vb, Tree) and vb.data.endswith("vec_data_block"):
                     vec_tokens = [t.value for t in vb.scan_values(lambda c: isinstance(c, Token))]
                     if vec_tokens:
+                        if self.need_append_header:
+                            self.pat_header.append(vec_tokens[0].strip())
                         vec_parts.append(self.expand_vec_data(vec_tokens[-1].strip()))
             vec = "".join(vec_parts)
+            self.need_append_header = False;
             self.emit(vec, micro, lines, self.current_wft, self.wft_pending)
             return
-
         if nested:
             start_idx = len(lines)
             for child in nested:
@@ -160,7 +162,7 @@ class STILToGasc():
             end_idx = len(lines)
             if start_idx < end_idx:
                 lines[start_idx].instr = micro
-                lines[end_idx - 1].instr = "RETURN"
+                #lines[end_idx - 1].instr = "RETURN"
             return
 
         vec = "X" * signal_count
@@ -169,17 +171,12 @@ class STILToGasc():
     def extract_pattern_lines(self, tree: Tree, signal_count: int) -> List[PatternLine]:
         """Extract pattern lines (vector + micro-instruction + waveform)."""
         lines: List[PatternLine] = []
-        current_wft = ""
-        wft_pending = False
-        
         for block in tree.iter_subtrees():
             if isinstance(block, Tree) and block.data.endswith("pattern_block"):
                 for stmt in block.children:
                     self.process(stmt, lines, signal_count) # The children of b_pattern__pattern_statement
 
         return lines
-
-
 
     def convert(self) -> int:
         parser = STILParser(self.stil_file)
@@ -188,15 +185,29 @@ class STILToGasc():
         signals = self.extract_signals(tree)
         sig_groups = self.extract_signal_groups(tree)
         patt_lines = self.extract_pattern_lines(tree, len(signals))
-
+        # the V key is unknown, so we need to get the key from signals or sig_groups
+        final_signals = []
+        for key in self.pat_header:
+            if key in sig_groups:
+                final_signals.extend(sig_groups[key])
+            elif key in signals:
+                final_signals.append(signals[key])
         with open(self.target_file, "w", encoding="utf-8") as fh:
-            fh.write("Signals\n")
+            # write signals
+            fh.write("Signals {\n")
             fh.write("     " + ",".join(signals) + ";\n\n")
+            fh.write("}\n\n")
+            # write signal groups
             if sig_groups:
                 fh.write("SignalGroups {\n")
                 for name, sigs in sig_groups.items():
                     fh.write("     {} = '{}';\n".format(name, " + ".join(sigs)))
                 fh.write("}\n\n")
+            # write header
+            fh.write("HEADER { \n")
+            fh.write("     " + ",".join(final_signals) + ";\n")
+            fh.write("}\n\n")
+            # write pattern
             fh.write("SPM_PATTERN (SCAN) {\n")
             for pl in patt_lines:
                 fh.write(f"       *{pl.vec}* {pl.instr};")
@@ -207,9 +218,11 @@ class STILToGasc():
         return 0
 
 if __name__ == "__main__":  # pragma: no cover - simple CLI wrapper
-    #sys.argv = ["stil_to_gasc.py", 
-    #        "tests/stil_files/pattern_block/syn_ok_pattern_block_2.stil", 
-    #        "gpt_tests/result.gasc"]
+    #stil_to_gasc = STILToGasc("tests/stil_files/pattern_block/syn_ok_pattern_block_2.stil",
+    #     "gpt_tests/result1.gasc")
+    # stil_to_gasc.convert()
+    # stil_to_gasc = STILToGasc("gpt_tests/utc_010_bypass.stil",
+    #     "gpt_tests/result2.gasc")
     stil_to_gasc = STILToGasc("C:/Users/admin/Desktop/1/utc_010_bypass.stil",
         "C:/Users/admin/Desktop/1/result.gasc")
     raise SystemExit(stil_to_gasc.convert())

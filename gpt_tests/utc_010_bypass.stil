@@ -1,0 +1,190 @@
+STIL 1.0;
+
+Header {
+  Title "uvddr_tc_top_stuck-at_stil";
+  Date "Tue Jun 18 10:50:28 2024";
+  Source "UVTespert2024.03.P1";
+  History {
+    Ann {* FAULT : STUCK-AT *}
+    Ann {* Coverage : 8.05 (TC) 7.97 (FC) *}
+    Ann {* Begin_Verify_Section *}
+    Ann {* pad_value = X *}
+    Ann {* chain_patterns = [0, 0] *}
+    Ann {* scan_patterns = [0, 367] *}
+    Ann {* End_Verify_Section *}
+  }
+}
+
+Signals {
+  "bump_drext_vdd2" In; "pad_ref_clk" In; "pad_ref_rst_n" In; "pad_tc_jtag_TCK" In; "pad_tc_jtag_TDI" In; "pad_tc_jtag_TMS" In; "pad_tc_jtag_TRST" In; "pad_utc_test_mode" In; "pad_utc_clock" In; "pad_utc_update" In; "pad_shift_clock" In; "pad_shift_enable" In; "pad_utc_channel_in[3]" In; "pad_utc_channel_in[2]" In; "pad_utc_channel_in[1]" In; "pad_utc_channel_in[0]" In; "pad_TEST_MODE" In; 
+  "pad_tc_jtag_TDO" Out; "pad_utc_channel_out[3]" Out; "pad_utc_channel_out[2]" Out; "pad_utc_channel_out[1]" Out; "pad_utc_channel_out[0]" Out; "pad_TDO" Out; 
+  "bp_atb0" InOut; "bp_atb1" InOut; "bp_mem_ca[6]" InOut; "bp_mem_ca[5]" InOut; "bp_mem_ca[4]" InOut; "bp_mem_ca[3]" InOut; "bp_mem_ca[2]" InOut; "bp_mem_ca[1]" InOut; "bp_mem_ca[0]" InOut; "bp_mem_ck_c[3]" InOut; "bp_mem_ck_c[2]" InOut; "bp_mem_ck_c[1]" InOut; "bp_mem_ck_c[0]" InOut; "bp_mem_ck_t[3]" InOut; "bp_mem_ck_t[2]" InOut; "bp_mem_ck_t[1]" InOut; "bp_mem_ck_t[0]" InOut; "bp_mem_cke[3]" InOut; "bp_mem_cke[2]" InOut; "bp_mem_cke[1]" InOut; "bp_mem_cke[0]" InOut; "bp_mem_cs[3]" InOut; "bp_mem_cs[2]" InOut; "bp_mem_cs[1]" InOut; "bp_mem_cs[0]" InOut; "bp_mem_dm[3]" InOut; "bp_mem_dm[2]" InOut; "bp_mem_dm[1]" InOut; "bp_mem_dm[0]" InOut; "bp_mem_dq[31]" InOut; "bp_mem_dq[30]" InOut; "bp_mem_dq[29]" InOut; "bp_mem_dq[28]" InOut; "bp_mem_dq[27]" InOut; "bp_mem_dq[26]" InOut; "bp_mem_dq[25]" InOut; "bp_mem_dq[24]" InOut; "bp_mem_dq[23]" InOut; "bp_mem_dq[22]" InOut; "bp_mem_dq[21]" InOut; "bp_mem_dq[20]" InOut; "bp_mem_dq[19]" InOut; "bp_mem_dq[18]" InOut; "bp_mem_dq[17]" InOut; "bp_mem_dq[16]" InOut; "bp_mem_dq[15]" InOut; "bp_mem_dq[14]" InOut; "bp_mem_dq[13]" InOut; "bp_mem_dq[12]" InOut; "bp_mem_dq[11]" InOut; "bp_mem_dq[10]" InOut; "bp_mem_dq[9]" InOut; "bp_mem_dq[8]" InOut; "bp_mem_dq[7]" InOut; "bp_mem_dq[6]" InOut; "bp_mem_dq[5]" InOut; "bp_mem_dq[4]" InOut; "bp_mem_dq[3]" InOut; "bp_mem_dq[2]" InOut; "bp_mem_dq[1]" InOut; "bp_mem_dq[0]" InOut; "bp_mem_dqs_n[3]" InOut; "bp_mem_dqs_n[2]" InOut; "bp_mem_dqs_n[1]" InOut; "bp_mem_dqs_n[0]" InOut; "bp_mem_dqs_p[3]" InOut; "bp_mem_dqs_p[2]" InOut; "bp_mem_dqs_p[1]" InOut; "bp_mem_dqs_p[0]" InOut; "bp_mem_rdqs_n[3]" InOut; "bp_mem_rdqs_n[2]" InOut; "bp_mem_rdqs_n[1]" InOut; "bp_mem_rdqs_n[0]" InOut; "bp_mem_rdqs_p[3]" InOut; "bp_mem_rdqs_p[2]" InOut; "bp_mem_rdqs_p[1]" InOut; "bp_mem_rdqs_p[0]" InOut; "bp_mem_reset_n" InOut; "bp_mem_zq" InOut; "bp_test_atb_0" InOut; "bp_test_atb_1" InOut; "bp_test_pad_0_n" InOut; "bp_test_pad_0_p" InOut; "bp_test_pad_1_n" InOut; "bp_test_pad_1_p" InOut; "bp_test_pad_2" InOut; "bp_test_pad_3_n" InOut; "bp_test_pad_3_p" InOut; "bp_test_pad_4" InOut; "bp_test_pad_5" InOut; "ana_tc_e1_pad" InOut; "ana_tc_e2_pad" InOut; "ana_tc_e3_pad" InOut; "ana_tc_e4_pad" InOut; "ana_tc_e5_pad" InOut; "ana_tc_e6_pad" InOut; "ana_tc_e7_pad" InOut; "ana_tc_sample_pad" InOut; 
+}
+
+SignalGroups {
+  _pi_ = '"bump_drext_vdd2" + "pad_ref_clk" + "pad_ref_rst_n" + "pad_tc_jtag_TCK" + "pad_tc_jtag_TDI" + "pad_tc_jtag_TMS" + "pad_tc_jtag_TRST" + "pad_utc_test_mode" + "pad_utc_clock" + "pad_utc_update" + "pad_shift_clock" + "pad_shift_enable" + "pad_utc_channel_in[3]" + "pad_utc_channel_in[2]" + "pad_utc_channel_in[1]" + "pad_utc_channel_in[0]" + "pad_TEST_MODE"';
+  _po_ = '"pad_tc_jtag_TDO" + "pad_utc_channel_out[3]" + "pad_utc_channel_out[2]" + "pad_utc_channel_out[1]" + "pad_utc_channel_out[0]" + "pad_TDO"';
+  _bidi_ = '"bp_atb0" + "bp_atb1" + "bp_mem_ca[6]" + "bp_mem_ca[5]" + "bp_mem_ca[4]" + "bp_mem_ca[3]" + "bp_mem_ca[2]" + "bp_mem_ca[1]" + "bp_mem_ca[0]" + "bp_mem_ck_c[3]" + "bp_mem_ck_c[2]" + "bp_mem_ck_c[1]" + "bp_mem_ck_c[0]" + "bp_mem_ck_t[3]" + "bp_mem_ck_t[2]" + "bp_mem_ck_t[1]" + "bp_mem_ck_t[0]" + "bp_mem_cke[3]" + "bp_mem_cke[2]" + "bp_mem_cke[1]" + "bp_mem_cke[0]" + "bp_mem_cs[3]" + "bp_mem_cs[2]" + "bp_mem_cs[1]" + "bp_mem_cs[0]" + "bp_mem_dm[3]" + "bp_mem_dm[2]" + "bp_mem_dm[1]" + "bp_mem_dm[0]" + "bp_mem_dq[31]" + "bp_mem_dq[30]" + "bp_mem_dq[29]" + "bp_mem_dq[28]" + "bp_mem_dq[27]" + "bp_mem_dq[26]" + "bp_mem_dq[25]" + "bp_mem_dq[24]" + "bp_mem_dq[23]" + "bp_mem_dq[22]" + "bp_mem_dq[21]" + "bp_mem_dq[20]" + "bp_mem_dq[19]" + "bp_mem_dq[18]" + "bp_mem_dq[17]" + "bp_mem_dq[16]" + "bp_mem_dq[15]" + "bp_mem_dq[14]" + "bp_mem_dq[13]" + "bp_mem_dq[12]" + "bp_mem_dq[11]" + "bp_mem_dq[10]" + "bp_mem_dq[9]" + "bp_mem_dq[8]" + "bp_mem_dq[7]" + "bp_mem_dq[6]" + "bp_mem_dq[5]" + "bp_mem_dq[4]" + "bp_mem_dq[3]" + "bp_mem_dq[2]" + "bp_mem_dq[1]" + "bp_mem_dq[0]" + "bp_mem_dqs_n[3]" + "bp_mem_dqs_n[2]" + "bp_mem_dqs_n[1]" + "bp_mem_dqs_n[0]" + "bp_mem_dqs_p[3]" + "bp_mem_dqs_p[2]" + "bp_mem_dqs_p[1]" + "bp_mem_dqs_p[0]" + "bp_mem_rdqs_n[3]" + "bp_mem_rdqs_n[2]" + "bp_mem_rdqs_n[1]" + "bp_mem_rdqs_n[0]" + "bp_mem_rdqs_p[3]" + "bp_mem_rdqs_p[2]" + "bp_mem_rdqs_p[1]" + "bp_mem_rdqs_p[0]" + "bp_mem_reset_n" + "bp_mem_zq" + "bp_test_atb_0" + "bp_test_atb_1" + "bp_test_pad_0_n" + "bp_test_pad_0_p" + "bp_test_pad_1_n" + "bp_test_pad_1_p" + "bp_test_pad_2" + "bp_test_pad_3_n" + "bp_test_pad_3_p" + "bp_test_pad_4" + "bp_test_pad_5" + "ana_tc_e1_pad" + "ana_tc_e2_pad" + "ana_tc_e3_pad" + "ana_tc_e4_pad" + "ana_tc_e5_pad" + "ana_tc_e6_pad" + "ana_tc_e7_pad" + "ana_tc_sample_pad"';
+  input_time_gen_0 = '"bump_drext_vdd2" + "pad_ref_clk" + "pad_ref_rst_n" + "pad_tc_jtag_TDI" + "pad_tc_jtag_TMS" + "pad_tc_jtag_TRST" + "pad_utc_test_mode" + "pad_utc_update" + "pad_shift_enable" + "pad_utc_channel_in[3]" + "pad_utc_channel_in[2]" + "pad_utc_channel_in[1]" + "pad_utc_channel_in[0]" + "pad_TEST_MODE"';
+  input_time_gen_1 = '"pad_tc_jtag_TCK" + "pad_utc_clock" + "pad_shift_clock"';
+}
+
+Timing STUCK_timing {
+  WaveformTable wt1 {
+    Period '40ns' ;
+    Waveforms  {
+      input_time_gen_0 { 01NZ { '0ns' D/U/N/Z; }}
+      input_time_gen_1 { 01 { '0ns' D; '20ns' D/U; '30ns' D; }}
+      _po_ { LHXTZ { '10ns' l/h/X/t/Z; '20ns' X; }}
+      _bidi_ { LHXT { '0ns' Z;  '10ns' l/h/X/t; }
+            01ZN { '0ns' D/U/Z/N; }}
+    }
+  }
+}
+
+PatternBurst scanpats {
+  PatList {
+    scan_test;
+  }
+}
+
+PatternExec {
+  Timing STUCK_timing;
+  PatternBurst scanpats;
+}
+
+Pattern scan_test {
+  //Pattern:0 Vector:0 TesterCycle:0
+  Ann {* Pattern:0 Vector:0 TesterCycle:0 *}
+  W wt1;
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN0NN1N0000NNNNN;
+      _po_=XXXXXX;
+  }
+  Ann {* Begin chain test *}
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN0NN110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN1NN010000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN1N0110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN1N1110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN1N1110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN1N0110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN1N0110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN100110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN100110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN100110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN111110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN111110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN111110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN110110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN110110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN100110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN110110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN100110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN111110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN111110000NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN110110000NNNN1;
+      _po_=XXXXXX;
+  }
+  //Chain Pattern:0 Vector:22 TesterCycle:22
+  Ann {* Chain Pattern:0 Vector:22 TesterCycle:22 *}
+  "chain_pattern 0":
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN0NN110001NNNN1;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN0NN111011NNN01;
+      _po_=XXXXXX;
+  }
+  V {
+      _bidi_= \r98 X ;
+      _pi_=NNN0NN111011NNN01;
+      _po_=XXXXXX;
+  }
+}
+

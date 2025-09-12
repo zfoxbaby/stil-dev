@@ -1,6 +1,7 @@
-HEADER
+Signals {
      si1,si2,so1,so2,sio1,sio2;
 
+}
 SignalGroups {
      all = 'si1 + si2 + so1 + so2 + sio1 + sio2';
      si = 'si1 + si2';
@@ -8,11 +9,14 @@ SignalGroups {
      sio = 'sio1 + sio2';
 }
 
+HEADER { 
+     si1,si2,so1,so2,sio1,sio2;
+
+}
 SPM_PATTERN (SCAN) {
-       *XXXXXX* ;
        *PPLLPL* C;wft;
        *PPLLPL* F;
-       *PPLLPL* V;
+       *PPLLPL* ;
        *XXXXXX* Call proc;
        *XXXXXX* Macro macro_z;
        *PPLLPL* Call proc;
@@ -29,6 +33,5 @@ SPM_PATTERN (SCAN) {
        *XXXXXX* IDDQTestPoint;
        *XXXXXX* Stop;
        *XXXXXX* ScanChain chain;
-       *PPLLPL* V;
-       *XXXXXX* ;
+       *PPLLPL* ;
 }
