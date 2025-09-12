@@ -54,6 +54,8 @@ class STILToGasc():
                  target_file):
         self.stil_file = stil_file
         self.target_file = target_file
+        self.current_wft = ""
+        self.wft_pending = False
 
     def extract_signals(self, tree: Tree) -> List[str]:
         """Return a list with all signal names declared in the STIL file."""
@@ -103,13 +105,11 @@ class STILToGasc():
     def emit(self, vec: str, instr: str, lines: List[PatternLine], current_wft: str, wft_pending: bool) -> None:
             wft = current_wft if wft_pending else ""
             if wft_pending:
-                wft_pending = False
+                self.wft_pending = False
             lines.append(PatternLine(vec=vec, instr=instr, wft=wft))
 
     # get Tree under b_pattern__pattern_statements_
     def process(self, node: Tree, lines: List[PatternLine], signal_count: int ) -> None:
-        current_wft = ""
-        wft_pending = False
 
         if not isinstance(node, Tree):
             return
@@ -121,11 +121,16 @@ class STILToGasc():
                 self.process(child, lines, signal_count)
             return
 
+        if (data.endswith("annotation")
+         or data.endswith("open_pattern_block")
+         or data.endswith("close_pattern_block")):
+            return
+
         if data.endswith("w_stmt"):
             tokens = [t.value for t in node.children if isinstance(t, Token)]
             if len(tokens) >= 2:
-                current_wft = tokens[1]
-                wft_pending = True
+                self.current_wft = tokens[1]
+                self.wft_pending = True
             return
 
         micro_tokens = [c.value for c in node.children if isinstance(c, Token)][:2]
@@ -145,7 +150,7 @@ class STILToGasc():
                     if vec_tokens:
                         vec_parts.append(self.expand_vec_data(vec_tokens[-1].strip()))
             vec = "".join(vec_parts)
-            self.emit(vec, micro, lines, current_wft, wft_pending)
+            self.emit(vec, micro, lines, self.current_wft, self.wft_pending)
             return
 
         if nested:
@@ -159,7 +164,7 @@ class STILToGasc():
             return
 
         vec = "X" * signal_count
-        self.emit(vec, micro, lines, current_wft, wft_pending)
+        self.emit(vec, micro, lines, self.current_wft, self.wft_pending)
 
     def extract_pattern_lines(self, tree: Tree, signal_count: int) -> List[PatternLine]:
         """Extract pattern lines (vector + micro-instruction + waveform)."""
