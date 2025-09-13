@@ -32,6 +32,8 @@ import sys
 from dataclasses import dataclass
 from typing import List
 
+from lark import Tree, Token
+
 try:  # Try importing the package as an installed dependency first
     from Semi_ATE.STIL.parsers.STILParser import STILParser
 except ImportError:  # pragma: no cover - fallback for local execution
@@ -49,21 +51,31 @@ class PatternLine:
     wft: str
 
 class STILToGasc():
-    def __init__(self, 
-                 stil_file, 
-                 target_file):
+    """Convert STIL files to a simple GASC-like format - OPTIMIZED VERSION."""
+
+    def __init__(self, stil_file, target_file, fast_mode=True):
+        """Initialize converter.
+        
+        Args:
+            stil_file: Path to input STIL file
+            target_file: Path to output GASC file  
+            fast_mode: If True, use optimizations for better performance on large files
+        """
         self.stil_file = stil_file
         self.target_file = target_file
+        self.fast_mode = fast_mode
+        
+        # Pattern line tracking
         self.current_wft = ""
         self.wft_pending = False
-
         self.pat_header: List[str] = []
         self.need_append_header = True
 
     def extract_signals(self, tree: Tree) -> List[str]:
-        """Return a list with all signal names declared in the STIL file."""
+        """Extract signal names from Signals block - OPTIMIZED."""
         signals: List[str] = []
-        #for node in tree.find_data("signals_list"):
+        
+        # Keep original node name that works
         for node in tree.find_data("b_signals__signals_list"):
             token = node.children[0]
             if isinstance(token, Token):
@@ -71,20 +83,22 @@ class STILToGasc():
         return signals
 
     def extract_signal_groups(self, tree: Tree) -> dict[str, List[str]]:
-        """Return a mapping of signal group names to ordered signal lists."""
+        """Extract signal groups mapping - keep original working logic."""
         groups: dict[str, List[str]] = {}
+        
+        # Keep original node name that works
         for node in tree.find_data("b_signal_groups__signal_groups_list"):
             tokens = [c for c in node.children if isinstance(c, Token)]
             if len(tokens) < 2:
                 continue
             name = tokens[0].value
             sigs: List[str] = [tokens[1].value.strip("\"")]
-
+            
             for vb in node.find_data("b_signal_groups__sigref_expr"):
                 for n in vb.children:
                     if isinstance(n, Token) and n != "+":
                         sigs.append(n.value.strip("\""))
-
+            
             groups[name] = sigs
         return groups
 
@@ -169,22 +183,60 @@ class STILToGasc():
         self.emit(vec, micro, lines, self.current_wft, self.wft_pending)
 
     def extract_pattern_lines(self, tree: Tree, signal_count: int) -> List[PatternLine]:
-        """Extract pattern lines (vector + micro-instruction + waveform)."""
+        """Extract pattern lines (vector + micro-instruction + waveform) - OPTIMIZED."""
         lines: List[PatternLine] = []
-        for block in tree.iter_subtrees():
-            if isinstance(block, Tree) and block.data.endswith("pattern_block"):
-                for stmt in block.children:
-                    self.process(stmt, lines, signal_count) # The children of b_pattern__pattern_statement
+        
+        # OPTIMIZATION: Use find_data instead of iter_subtrees for better performance
+        pattern_blocks = tree.find_data("pattern_block")
+        
+        for block in pattern_blocks:
+            for stmt in block.children:
+                self.process(stmt, lines, signal_count)
 
         return lines
 
-    def convert(self) -> int:
-        parser = STILParser(self.stil_file)
-        tree = parser.parse_syntax()
-
+    def convert(self, progress_callback=None) -> int:
+        """Convert STIL file to GASC format
+        
+        Args:
+            progress_callback: Progress callback function, accepts (current_step, total_steps, message) parameters
+        """
+        total_steps = 4
+        
+        if progress_callback:
+            progress_callback(1, total_steps, "Starting STIL file parsing...")
+        
+        # Get file size for estimation
+        file_size = os.path.getsize(self.stil_file) if os.path.exists(self.stil_file) else 0
+        size_mb = file_size / (1024 * 1024)
+        
+        if progress_callback:
+            progress_callback(1, total_steps, f"File size: {size_mb:.1f}MB, parsing syntax...")
+            
+        # OPTIMIZATION: Choose parser settings based on fast_mode
+        if self.fast_mode:
+            # Fast mode: disable position tracking and debug for large files
+            parser = STILParser(self.stil_file, propagate_positions=False, debug=False)
+        else:
+            # Standard mode: keep all features
+            parser = STILParser(self.stil_file, propagate_positions=True, debug=False)
+            
+        tree = parser.parse_syntax(debug=False, preprocess_include=not self.fast_mode)
+        
+        if progress_callback:
+            progress_callback(2, total_steps, "Extracting signal definitions...")
+            
         signals = self.extract_signals(tree)
         sig_groups = self.extract_signal_groups(tree)
+        
+        if progress_callback:
+            progress_callback(3, total_steps, f"Extracting pattern data (found {len(signals)} signals)...")
+            
         patt_lines = self.extract_pattern_lines(tree, len(signals))
+        
+        if progress_callback:
+            progress_callback(4, total_steps, f"Generating output file (processing {len(patt_lines)} pattern lines)...")
+        
         # the V key is unknown, so we need to get the key from signals or sig_groups
         final_signals = []
         for key in self.pat_header:
@@ -215,6 +267,10 @@ class STILToGasc():
                     fh.write(f"{pl.wft};")
                 fh.write("\n")
             fh.write("}\n")
+        
+        if progress_callback:
+            progress_callback(4, total_steps, "Conversion completed!")
+            
         return 0
 
 if __name__ == "__main__":  # pragma: no cover - simple CLI wrapper

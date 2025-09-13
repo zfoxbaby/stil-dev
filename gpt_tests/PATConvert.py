@@ -4,6 +4,7 @@ from tkinter import ttk, filedialog, scrolledtext, messagebox
 import threading
 import time
 import os
+from datetime import datetime
 from STILToGasc import STILToGasc 
 
 
@@ -22,6 +23,14 @@ class ConverterGUI:
         self.source_type.bind("<<ComboboxSelected>>", self.select_combo)
         self.source_type.current(0)
         self.source_type.pack(side="left", padx=5, expand=True, fill="x")
+
+        # ============ Fast Mode Option ============
+        frame_fast = ttk.Frame(root)
+        frame_fast.pack(fill="x", padx=10, pady=5)
+        
+        self.fast_mode_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(frame_fast, text="Fast Mode (Recommended for large files/No Include)", 
+                       variable=self.fast_mode_var).pack(side="left")
 
         # ============ Source File ============
         frame_source = ttk.Frame(root)
@@ -109,8 +118,33 @@ class ConverterGUI:
         target_file_path = os.path.join(target_folder, os.path.splitext(source_file_name)[0] + ".gasc")
         self.log(f"Source: {source_file}")
         self.log(f"Target: {target_file_path}")
-        stil_to_gasc = STILToGasc(source_file, target_file_path)
-        stil_to_gasc.convert()
+        
+        # Record start time
+        start_time = datetime.now()
+        self.log(f"Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        fast_mode = self.fast_mode_var.get()
+        self.log(f"Fast Mode: {'Enabled' if fast_mode else 'Disabled'}")
+        
+        def progress_callback(current_step, total_steps, message):
+            """Progress callback function"""
+            progress_percent = int((current_step / total_steps) * 100)
+            elapsed = datetime.now() - start_time
+            self.log(f"[{progress_percent}%] {message} (Elapsed: {elapsed.total_seconds():.1f}s)")
+        
+        stil_to_gasc = STILToGasc(source_file, target_file_path, fast_mode=fast_mode)
+        try:
+            stil_to_gasc.convert(progress_callback)
+            # Calculate total time
+            end_time = datetime.now()
+            total_time = end_time - start_time
+            self.log(f"End time: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            self.log(f"Total conversion time: {total_time.total_seconds():.2f} seconds")
+            self.log(f"{target_file_path} conversion successfully!")
+        except Exception as e:
+            end_time = datetime.now()
+            total_time = end_time - start_time
+            self.log(f"Conversion failed after {total_time.total_seconds():.2f} seconds: {str(e)}")
+            raise
 
     def convert(self, source, target):
         self.log(f"Starting conversion...")
