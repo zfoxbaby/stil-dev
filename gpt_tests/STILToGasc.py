@@ -180,7 +180,7 @@ class STILToGasc():
 
     def convert(self) -> int:
         parser = STILParser(self.stil_file)
-        tree = parser.parse_syntax(debug=True)
+        tree = parser.parse_syntax()
 
         signals = self.extract_signals(tree)
         sig_groups = self.extract_signal_groups(tree)
