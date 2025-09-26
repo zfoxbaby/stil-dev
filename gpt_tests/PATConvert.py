@@ -65,8 +65,16 @@ class ConverterGUI:
         self.text_area.pack(fill="both", expand=True)
 
     def log(self, msg):
-        """在进度框输出日志"""
+        """在进度框输出日志，自动管理文本长度避免内存溢出"""
         self.text_area.insert(tk.END, msg + "\n")
+        
+        # 更高效的文本长度管理：使用行数而不是字符数
+        line_count = int(self.text_area.index('end-1c').split('.')[0])
+        if line_count > 5000:  # 超过5000行时进行截断
+            # 删除前3000行，保留后2000行
+            self.text_area.delete("1.0", "3001.0")
+            self.text_area.insert("1.0", "... [日志已自动截断，显示最近 2000 行] ...\n")
+        
         self.text_area.see(tk.END)
 
     def select_combo(self, event=None):
@@ -125,11 +133,12 @@ class ConverterGUI:
         fast_mode = self.fast_mode_var.get()
         self.log(f"Fast Mode: {'Enabled' if fast_mode else 'Disabled'}")
         
-        def progress_callback(current_step, total_steps, message):
-            """Progress callback function"""
-            progress_percent = int((current_step / total_steps) * 100)
+        def progress_callback(message):
+            """Progress callback function with real-time vector counting"""
             elapsed = datetime.now() - start_time
-            self.log(f"[{progress_percent}%] {message} (Elapsed: {elapsed.total_seconds():.1f}s)")
+            self.log(f"{message} (Elapsed: {elapsed.total_seconds():.1f}s)")
+            # 强制UI更新，确保用户能看到进度
+            self.root.update_idletasks()
         
         stil_to_gasc = STILToGasc(source_file, target_file_path, fast_mode=fast_mode)
         try:

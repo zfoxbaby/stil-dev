@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import os
 import re
+import time
 
 from lark import Lark
 from lark.exceptions import UnexpectedToken
@@ -13,6 +14,7 @@ from .STILLark import STILLark
 from . import SyntaxParserExceptions
 from . import STILSemanticException
 from . import utils
+
 
 class STILParser(STILLark):
     def __init__(self, 
@@ -169,10 +171,14 @@ class STILParser(STILLark):
                         else:
                             file = self.stil_file
 
-                    with open(file) as data:
+                    start = time.time()
+                    with open(file, encoding="utf-8", errors="ignore") as data:
                         self.tree = self.parser.parse(data.read())
                         if debug == True:
                             print(self.tree.pretty())
+                    end = time.time()
+                    duration = end - start;
+                    print("结束时间戳:", duration);
             else:
                 msg = "ERROR : input STIL file does not exists '{self.stil_file}' b"
                 raise Exception(msg)

@@ -23,6 +23,8 @@ Note
 ----
 The repository does not ship the ``lark`` dependency that powers the parser.
 Running this script requires installing ``lark`` into the environment.
+
+OPTIMIZED VERSION with streaming output and real-time progress display.
 """
 
 from __future__ import annotations
@@ -46,20 +48,21 @@ from lark import Tree, Token
 
 @dataclass
 class PatternLine:
-    vec: str
-    instr: str
-    wft: str
+    """模式行数据结构"""
+    vec: str      # 向量数据
+    instr: str    # 微指令
+    wft: str      # 波形表名称
 
 class STILToGasc():
-    """Convert STIL files to a simple GASC-like format - OPTIMIZED VERSION."""
+    """Convert STIL files to a simple GASC-like format - STREAMING OPTIMIZED VERSION."""
 
     def __init__(self, stil_file, target_file, fast_mode=True):
-        """Initialize converter.
+        """初始化转换器
         
         Args:
-            stil_file: Path to input STIL file
-            target_file: Path to output GASC file  
-            fast_mode: If True, use optimizations for better performance on large files
+            stil_file: 输入STIL文件路径
+            target_file: 输出GASC文件路径  
+            fast_mode: 是否启用快速模式（大文件优化）
         """
         self.stil_file = stil_file
         self.target_file = target_file
@@ -70,9 +73,18 @@ class STILToGasc():
         self.wft_pending = False
         self.pat_header: List[str] = []
         self.need_append_header = True
+        
+        # Streaming output
+        self.output_file = None
+        self.header_written = False
+        self.pattern_section_started = False
+        
+        # Progress tracking
+        self.vector_count = 0
+        self.progress_callback = None
 
     def extract_signals(self, tree: Tree) -> List[str]:
-        """Extract signal names from Signals block - OPTIMIZED."""
+        """从Signals块提取信号名称列表"""
         signals: List[str] = []
         
         # Keep original node name that works
@@ -83,7 +95,7 @@ class STILToGasc():
         return signals
 
     def extract_signal_groups(self, tree: Tree) -> dict[str, List[str]]:
-        """Extract signal groups mapping - keep original working logic."""
+        """从SignalGroups块提取信号组映射关系"""
         groups: dict[str, List[str]] = {}
         
         # Keep original node name that works
@@ -103,35 +115,70 @@ class STILToGasc():
         return groups
 
     def expand_vec_data(self, data: str) -> str:
-        """Expand repeat directives like ``\r98 X`` inside vector data."""
-        parts = data.split()
-        result = ""
-        i = 0
-        while i < len(parts):
-            part = parts[i]
-            if part.startswith("\\r") and len(part) > 2:
-                repeat = int(part[2:])
-                result += parts[i + 1] * repeat
-                i += 2
-            else:
-                result += part
-                i += 1
+        """展开向量数据中的重复指令，如 \\r98 X
+        
+        支持的格式：
+        1. \\r98 X -> XXXXXXX...
+        2. XLLL \\r98 X HHH \\r4 H LL -> XLLLXXXXXXX...HHHHHHHLL
+        """
+        import re
+        
+        # 使用正则表达式匹配 \r数字 后跟一个或多个字符的模式
+        # 模式: \r后跟数字，然后是空格，然后是要重复的内容
+        pattern = r'\\r(\d+)\s+([^\s\\]+)'
+        
+        def replace_repeat(match):
+            repeat_count = int(match.group(1))
+            repeat_content = match.group(2)
+            return repeat_content * repeat_count
+        
+        # 反复应用替换，直到没有更多的重复指令
+        result = data
+        while '\\r' in result:
+            new_result = re.sub(pattern, replace_repeat, result)
+            if new_result == result:  # 没有更多替换，避免无限循环
+                break
+            result = new_result
+        
+        # 去除多余的空格
+        result = re.sub(r'\s+', '', result)
+        
         return result
 
-    def emit(self, vec: str, instr: str, lines: List[PatternLine], current_wft: str, wft_pending: bool) -> None:
-            wft = current_wft if wft_pending else ""
-            if wft_pending:
-                self.wft_pending = False
-            lines.append(PatternLine(vec=vec, instr=instr, wft=wft))
+    def write_pattern_line_streaming(self, vec: str, instr: str, wft: str) -> None:
+        """流式写入模式行数据到输出文件"""
+        if not self.pattern_section_started:
+            self.output_file.write("SPM_PATTERN (SCAN) {\n")
+            self.pattern_section_started = True
+            
+        self.output_file.write(f"       *{vec}* {instr};")
+        if wft:
+            self.output_file.write(f"{wft};")
+        self.output_file.write("\n")
+        
+        # Update progress counter
+        self.vector_count += 1
+        # 优化进度更新频率：前10000个每1000更新，之后每5000更新
+        update_interval = 1000 if self.vector_count <= 10000 else 5000
+        if self.progress_callback and self.vector_count % update_interval == 0:
+            self.progress_callback(f"已处理 {self.vector_count:,} 个向量...")
+
+    def emit_streaming(self, vec: str, instr: str, current_wft: str, wft_pending: bool) -> None:
+        """输出单个模式行（流式处理）"""
+        wft = current_wft if wft_pending else ""
+        if wft_pending:
+            self.wft_pending = False
+        self.write_pattern_line_streaming(vec, instr, wft)
 
     # get Tree under b_pattern__pattern_statements_
-    def process(self, node: Tree, lines: List[PatternLine], signal_count: int ) -> None:
+    def process_streaming(self, node: Tree, signal_count: int) -> None:
+        """递归处理模式语句节点（流式输出）"""
         if not isinstance(node, Tree):
             return
         data = node.data
         if data.endswith("pattern_statement"):
             for child in node.children:
-                self.process(child, lines, signal_count)
+                self.process_streaming(child, signal_count)
             return
         # skip annotation, open_pattern_block, close_pattern_block
         if (data.endswith("annotation")
@@ -166,52 +213,121 @@ class STILToGasc():
                             self.pat_header.append(vec_tokens[0].strip())
                         vec_parts.append(self.expand_vec_data(vec_tokens[-1].strip()))
             vec = "".join(vec_parts)
-            self.need_append_header = False;
-            self.emit(vec, micro, lines, self.current_wft, self.wft_pending)
+            self.need_append_header = False
+            self.emit_streaming(vec, micro, self.current_wft, self.wft_pending)
             return
         if nested:
-            start_idx = len(lines)
             for child in nested:
-                self.process(child, lines, signal_count)
-            end_idx = len(lines)
-            if start_idx < end_idx:
-                lines[start_idx].instr = micro
-                #lines[end_idx - 1].instr = "RETURN"
+                self.process_streaming(child, signal_count)
             return
 
         vec = "X" * signal_count
-        self.emit(vec, micro, lines, self.current_wft, self.wft_pending)
+        self.emit_streaming(vec, micro, self.current_wft, self.wft_pending)
 
-    def extract_pattern_lines(self, tree: Tree, signal_count: int) -> List[PatternLine]:
-        """Extract pattern lines (vector + micro-instruction + waveform) - OPTIMIZED."""
-        lines: List[PatternLine] = []
+    def write_header_info(self, signals: List[str], sig_groups: dict[str, List[str]]) -> None:
+        """写入文件头部信息（信号和信号组）"""
+        if self.header_written:
+            return
+            
+        # write signals
+        self.output_file.write("Signals {\n")
+        self.output_file.write("     " + ",".join(signals) + ";\n\n")
+        self.output_file.write("}\n\n")
         
-        # OPTIMIZATION: Use find_data instead of iter_subtrees for better performance
+        # write signal groups
+        if sig_groups:
+            self.output_file.write("SignalGroups {\n")
+            for name, sigs in sig_groups.items():
+                self.output_file.write("     {} = '{}';\n".format(name, " + ".join(sigs)))
+            self.output_file.write("}\n\n")
+            
+        # write pattern header (will be updated after first vector is processed)
+        self.output_file.write("HEADER { \n")
+        # This will be written after we determine the final signals
+        self.header_written = True
+
+    def finalize_header(self, signals: List[str], sig_groups: dict[str, List[str]]) -> None:
+        """完善文件头部，确定最终的模式信号列表"""
+        # Determine final signals based on pattern header
+        final_signals = []
+        for key in self.pat_header:
+            if key in sig_groups:
+                final_signals.extend(sig_groups[key])
+            elif key in signals:
+                final_signals.append(key)
+        
+        # We need to close current file and rewrite with proper header
+        if self.output_file:
+            temp_file = self.target_file + ".tmp"
+            
+            # Write complete header to temp file
+            with open(temp_file, "w", encoding="utf-8") as temp_fh:
+                # Write signals
+                temp_fh.write("Signals {\n")
+                temp_fh.write("     " + ",".join(signals) + ";\n\n")
+                temp_fh.write("}\n\n")
+                
+                # Write signal groups
+                if sig_groups:
+                    temp_fh.write("SignalGroups {\n")
+                    for name, sigs in sig_groups.items():
+                        temp_fh.write("     {} = '{}';\n".format(name, " + ".join(sigs)))
+                    temp_fh.write("}\n\n")
+                    
+                # Write proper header
+                temp_fh.write("HEADER { \n")
+                temp_fh.write("     " + ",".join(final_signals) + ";\n")
+                temp_fh.write("}\n\n")
+                
+                # Copy pattern section from original file
+                self.output_file.close()
+                with open(self.target_file, "r", encoding="utf-8") as orig_fh:
+                    content = orig_fh.read()
+                    # Find SPM_PATTERN section
+                    pattern_start = content.find("SPM_PATTERN (SCAN) {")
+                    if pattern_start >= 0:
+                        temp_fh.write(content[pattern_start:])
+                        temp_fh.write("}\n")
+            
+            # Replace original with temp file
+            import shutil
+            shutil.move(temp_file, self.target_file)
+
+    def extract_pattern_lines_streaming(self, tree: Tree, signal_count: int, signals: List[str], sig_groups: dict[str, List[str]]) -> None:
+        """流式提取和输出模式行数据"""
+        
+        # Write initial header (will be updated later)
+        self.write_header_info(signals, sig_groups)
+        
+        # Find pattern blocks and process them streaming
         pattern_blocks = tree.find_data("pattern_block")
         
         for block in pattern_blocks:
             for stmt in block.children:
-                self.process(stmt, lines, signal_count)
-
-        return lines
+                self.process_streaming(stmt, signal_count)
+        
+        # Close pattern section
+        if self.pattern_section_started:
+            self.output_file.write("}\n")
 
     def convert(self, progress_callback=None) -> int:
-        """Convert STIL file to GASC format
+        """主转换函数：将STIL文件转换为GASC格式（流式输出）
         
         Args:
-            progress_callback: Progress callback function, accepts (current_step, total_steps, message) parameters
+            progress_callback: 进度回调函数，接收消息参数
         """
-        total_steps = 4
+        self.progress_callback = progress_callback
+        self.vector_count = 0
         
         if progress_callback:
-            progress_callback(1, total_steps, "Starting STIL file parsing...")
+            progress_callback("开始解析STIL文件...")
         
         # Get file size for estimation
         file_size = os.path.getsize(self.stil_file) if os.path.exists(self.stil_file) else 0
         size_mb = file_size / (1024 * 1024)
         
         if progress_callback:
-            progress_callback(1, total_steps, f"File size: {size_mb:.1f}MB, parsing syntax...")
+            progress_callback(f"文件大小: {size_mb:.1f}MB，开始语法解析...")
             
         # OPTIMIZATION: Choose parser settings based on fast_mode
         if self.fast_mode:
@@ -224,52 +340,33 @@ class STILToGasc():
         tree = parser.parse_syntax(debug=False, preprocess_include=not self.fast_mode)
         
         if progress_callback:
-            progress_callback(2, total_steps, "Extracting signal definitions...")
+            progress_callback("解析完成，开始提取信号定义...")
             
         signals = self.extract_signals(tree)
         sig_groups = self.extract_signal_groups(tree)
         
         if progress_callback:
-            progress_callback(3, total_steps, f"Extracting pattern data (found {len(signals)} signals)...")
+            progress_callback(f"找到 {len(signals)} 个信号，开始流式处理模式数据...")
+        
+        # Open output file for streaming
+        self.output_file = open(self.target_file, "w", encoding="utf-8")
+        
+        try:
+            # Stream process pattern lines
+            self.extract_pattern_lines_streaming(tree, len(signals), signals, sig_groups)
             
-        patt_lines = self.extract_pattern_lines(tree, len(signals))
+            if progress_callback:
+                progress_callback(f"流式处理完成，共处理 {self.vector_count} 个向量，正在完善文件头...")
+            
+            # Finalize header with correct pattern signals
+            self.finalize_header(signals, sig_groups)
+            
+        finally:
+            if self.output_file and not self.output_file.closed:
+                self.output_file.close()
         
         if progress_callback:
-            progress_callback(4, total_steps, f"Generating output file (processing {len(patt_lines)} pattern lines)...")
-        
-        # the V key is unknown, so we need to get the key from signals or sig_groups
-        final_signals = []
-        for key in self.pat_header:
-            if key in sig_groups:
-                final_signals.extend(sig_groups[key])
-            elif key in signals:
-                final_signals.append(signals[key])
-        with open(self.target_file, "w", encoding="utf-8") as fh:
-            # write signals
-            fh.write("Signals {\n")
-            fh.write("     " + ",".join(signals) + ";\n\n")
-            fh.write("}\n\n")
-            # write signal groups
-            if sig_groups:
-                fh.write("SignalGroups {\n")
-                for name, sigs in sig_groups.items():
-                    fh.write("     {} = '{}';\n".format(name, " + ".join(sigs)))
-                fh.write("}\n\n")
-            # write header
-            fh.write("HEADER { \n")
-            fh.write("     " + ",".join(final_signals) + ";\n")
-            fh.write("}\n\n")
-            # write pattern
-            fh.write("SPM_PATTERN (SCAN) {\n")
-            for pl in patt_lines:
-                fh.write(f"       *{pl.vec}* {pl.instr};")
-                if pl.wft:
-                    fh.write(f"{pl.wft};")
-                fh.write("\n")
-            fh.write("}\n")
-        
-        if progress_callback:
-            progress_callback(4, total_steps, "Conversion completed!")
+            progress_callback(f"转换完成！总共处理了 {self.vector_count} 个向量")
             
         return 0
 
