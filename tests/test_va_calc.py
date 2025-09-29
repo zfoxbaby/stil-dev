@@ -17,6 +17,20 @@ def get_stil_file(file_name):
     folder = os.path.dirname(__file__)
     return os.path.join(str(folder), "stil_files", "va_calc", file_name)
 
+def test_sem_err_signal_groups_block_0():
+
+    stil_file = "C:\\Users\\admin\\Desktop\\1\\result\\utc_010_bypass_big.stil"
+    
+    out_folder = "C:\\Users\\admin\\Desktop\\1\\result\\compliler_output"
+
+    compiler = STILDumpCompiler(
+        stil_file, expanding_procs=True, is_scan_mem_available=True, out_folder = out_folder
+    )
+    compiler.compile()
+    compiler.calculate_test_cycles()
+    assert compiler.err_line == -1
+    assert compiler.err_col == -1
+
 
 def test_sem_err_signal_groups_block_1():
 

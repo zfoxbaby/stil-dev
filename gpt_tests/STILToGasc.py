@@ -56,7 +56,7 @@ class PatternLine:
 class STILToGasc():
     """Convert STIL files to a simple GASC-like format - STREAMING OPTIMIZED VERSION."""
 
-    def __init__(self, stil_file, target_file, fast_mode=True):
+    def __init__(self, stil_file, target_file, fast_mode=True, progress_callback=None):
         """初始化转换器
         
         Args:
@@ -75,13 +75,16 @@ class STILToGasc():
         self.need_append_header = True
         
         # Streaming output
-        self.output_file = None
+        #self.output_file = None
+        # Open output file for streaming
+        self.output_file = open(target_file, "w", encoding="utf-8")
         self.header_written = False
         self.pattern_section_started = False
         
         # Progress tracking
         self.vector_count = 0
-        self.progress_callback = None
+        #self.progress_callback = None
+        self.progress_callback = progress_callback
 
     def extract_signals(self, tree: Tree) -> List[str]:
         """从Signals块提取信号名称列表"""
@@ -307,27 +310,26 @@ class STILToGasc():
                 self.process_streaming(stmt, signal_count)
         
         # Close pattern section
-        if self.pattern_section_started:
-            self.output_file.write("}\n")
+        #if self.pattern_section_started:
+        #    self.output_file.write("}\n")
 
-    def convert(self, progress_callback=None) -> int:
+    def convert(self) -> int:
         """主转换函数：将STIL文件转换为GASC格式（流式输出）
         
         Args:
             progress_callback: 进度回调函数，接收消息参数
         """
-        self.progress_callback = progress_callback
         self.vector_count = 0
         
-        if progress_callback:
-            progress_callback("开始解析STIL文件...")
+        if self.progress_callback:
+            self.progress_callback("开始解析STIL文件...")
         
         # Get file size for estimation
         file_size = os.path.getsize(self.stil_file) if os.path.exists(self.stil_file) else 0
         size_mb = file_size / (1024 * 1024)
         
-        if progress_callback:
-            progress_callback(f"文件大小: {size_mb:.1f}MB，开始语法解析...")
+        if self.progress_callback:
+            self.progress_callback(f"文件大小: {size_mb:.1f}MB，开始语法解析...")
             
         # OPTIMIZATION: Choose parser settings based on fast_mode
         if self.fast_mode:
@@ -339,24 +341,21 @@ class STILToGasc():
             
         tree = parser.parse_syntax(debug=False, preprocess_include=not self.fast_mode)
         
-        if progress_callback:
-            progress_callback("解析完成，开始提取信号定义...")
+        if self.progress_callback:
+            self.progress_callback("解析完成，开始提取信号定义...")
             
         signals = self.extract_signals(tree)
         sig_groups = self.extract_signal_groups(tree)
         
-        if progress_callback:
-            progress_callback(f"找到 {len(signals)} 个信号，开始流式处理模式数据...")
-        
-        # Open output file for streaming
-        self.output_file = open(self.target_file, "w", encoding="utf-8")
+        if self.progress_callback:
+            self.progress_callback(f"找到 {len(signals)} 个信号，开始流式处理模式数据...")
         
         try:
             # Stream process pattern lines
             self.extract_pattern_lines_streaming(tree, len(signals), signals, sig_groups)
             
-            if progress_callback:
-                progress_callback(f"流式处理完成，共处理 {self.vector_count} 个向量，正在完善文件头...")
+            if self.progress_callback:
+                self.progress_callback(f"流式处理完成，共处理 {self.vector_count} 个向量，正在完善文件头...")
             
             # Finalize header with correct pattern signals
             self.finalize_header(signals, sig_groups)
@@ -365,10 +364,18 @@ class STILToGasc():
             if self.output_file and not self.output_file.closed:
                 self.output_file.close()
         
-        if progress_callback:
-            progress_callback(f"转换完成！总共处理了 {self.vector_count} 个向量")
+        if self.progress_callback:
+            self.progress_callback(f"转换完成！总共处理了 {self.vector_count} 个向量")
             
         return 0
+
+    def close(self):
+        if self.output_file and not self.output_file.closed:
+            self.output_file.close()
+
+    def flush(self):
+        if self.output_file and not self.output_file.closed:
+            self.output_file.flush()
 
 if __name__ == "__main__":  # pragma: no cover - simple CLI wrapper
     #stil_to_gasc = STILToGasc("tests/stil_files/pattern_block/syn_ok_pattern_block_2.stil",

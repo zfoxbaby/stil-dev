@@ -140,9 +140,10 @@ class ConverterGUI:
             # 强制UI更新，确保用户能看到进度
             self.root.update_idletasks()
         
-        stil_to_gasc = STILToGasc(source_file, target_file_path, fast_mode=fast_mode)
+        stil_to_gasc = STILToGasc(source_file, target_file_path,
+             fast_mode=fast_mode, progress_callback=progress_callback)
         try:
-            stil_to_gasc.convert(progress_callback)
+            stil_to_gasc.convert()
             # Calculate total time
             end_time = datetime.now()
             total_time = end_time - start_time

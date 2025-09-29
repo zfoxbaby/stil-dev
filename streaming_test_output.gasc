@@ -1,0 +1,16 @@
+Signals {
+     si1,si2,so1,so2,sio1,sio2;
+
+}
+
+SignalGroups {
+     all = 'si + so + sio';
+     si = 'si1 + si2';
+     so = 'so1 + so2';
+     sio = 'sio1 + sio2';
+}
+
+HEADER { 
+     si1,si2,so1,so2,sio1,sio2;
+}
+
