@@ -67,12 +67,15 @@ class STILToGascStream():
         """
         self.stil_file = stil_file
         self.target_file = target_file
+        self.file_size = -1  # 文件大小
+        self.read_size = 0  # 已读取字节数
         # Pattern line tracking
         self.current_wft = ""
         self.wft_pending = False
         self.pat_header: List[str] = []
         self.need_append_header = True
-        
+        self.label_value = ""
+
         # Streaming output
         #self.output_file = None
         # Open output file for streaming
