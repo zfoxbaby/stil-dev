@@ -217,8 +217,8 @@ class STILToGascStream():
         self.output_file.write(f"       *{vec}*{instr};")
         if wft:
             self.output_file.write(f"{wft};")
-        if label_value:
-            self.output_file.write(f"{label_value.strip(":")};")
+        if label_value: # strip ':' and '"'
+            self.output_file.write(f"{label_value.strip(":").strip("\"")};")
         self.output_file.write("\n")
         
         # Update progress counter
