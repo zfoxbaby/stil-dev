@@ -5,8 +5,7 @@ import threading
 import time
 import os
 from datetime import datetime
-from STILToGasc import STILToGasc 
-
+from STILToGascStream import STILToGascStream
 
 class ConverterGUI:
     def __init__(self, root):
@@ -21,16 +20,15 @@ class ConverterGUI:
         ttk.Label(frame_type, text="Source Type:").pack(side="left")
         self.source_type = ttk.Combobox(frame_type, values=["Standard", "Specify File"], state="readonly")
         self.source_type.bind("<<ComboboxSelected>>", self.select_combo)
-        self.source_type.current(0)
+        self.source_type.current(1)
         self.source_type.pack(side="left", padx=5, expand=True, fill="x")
 
         # ============ Fast Mode Option ============
-        frame_fast = ttk.Frame(root)
-        frame_fast.pack(fill="x", padx=10, pady=5)
-        
-        self.fast_mode_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(frame_fast, text="Fast Mode (Recommended for large files/No Include)", 
-                       variable=self.fast_mode_var).pack(side="left")
+        #frame_fast = ttk.Frame(root)
+        #frame_fast.pack(fill="x", padx=10, pady=5)
+        #self.fast_mode_var = tk.BooleanVar(value=True)
+        #ttk.Checkbutton(frame_fast, text="Fast Mode (Recommended for large files/No Include)", 
+        #               variable=self.fast_mode_var).pack(side="left")
 
         # ============ Source File ============
         frame_source = ttk.Frame(root)
@@ -130,8 +128,6 @@ class ConverterGUI:
         # Record start time
         start_time = datetime.now()
         self.log(f"Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        fast_mode = self.fast_mode_var.get()
-        self.log(f"Fast Mode: {'Enabled' if fast_mode else 'Disabled'}")
         
         def progress_callback(message):
             """Progress callback function with real-time vector counting"""
@@ -140,10 +136,9 @@ class ConverterGUI:
             # 强制UI更新，确保用户能看到进度
             self.root.update_idletasks()
         
-        stil_to_gasc = STILToGasc(source_file, target_file_path,
-             fast_mode=fast_mode, progress_callback=progress_callback)
+        parser = STILToGascStream(source_file, target_file_path, progress_callback, debug=False)
         try:
-            stil_to_gasc.convert()
+            parser.convert()
             # Calculate total time
             end_time = datetime.now()
             total_time = end_time - start_time

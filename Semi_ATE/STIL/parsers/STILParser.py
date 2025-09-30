@@ -318,3 +318,6 @@ class STILParser(STILLark):
         else:
             msg = "ERROR : syntax parsing must be performed before semantic analisys b"
             raise Exception(msg)
+
+    def parse_content(self, content) -> None:
+        return self.parser.parse(content)
