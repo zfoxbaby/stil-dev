@@ -34,7 +34,7 @@ from queue import Empty
 import sys
 from dataclasses import dataclass
 from typing import List
-
+from TimingData import TimingData
 from lark import Lark, Tree, Token, LarkError
 
 try:  # Try importing the package as an installed dependency first
@@ -171,10 +171,173 @@ class STILToGascStream():
 
     # ========================== get timings ==========================
     # get timing from tree
-    def write_timing(self, tree: Tree) -> None:
+    def write_timing(self, tree: Tree) -> {str, List[TimingData]}:
         """从Timing块提取Timing信息"""
+        # construct TimingData
         for node in tree.find_data("timing_block"):
-            print(node)
+            timings = {};
+            timing_data_list = []
+            # the timing_block contains b_timing__waveform_table
+            for node in node.find_data("b_timing__waveform_table"):
+                wft = "";
+                period = "";
+                for child in node.children:
+                    # get b_timing__WFT_NAME from b_timing__waveform_table
+                    if isinstance(child, Token) and child.type == "b_timing__WFT_NAME":
+                        wft = child.value
+                    # get 'b_timing__period' from b_timing__waveform_table
+                    if (isinstance(child, Tree)
+                     and child.data == "b_timing__period"
+                     and len(child.children) == 2):
+                        if isinstance(child.children[1], Token):
+                            period = child.children[1].value.replace("'", "");
+                timings.setdefault(wft, [])
+                # get 'b_timing__waveforms_list' from b_timing__waveform_table
+                for child in node.find_data("b_timing__waveforms_list"):
+                    time_values = []
+                    edge_values = []
+                    timing_data = TimingData()
+                    timing_data.wft = wft
+                    timing_data.period = period
+                    for subchild in child.children:
+                        # get signal form 'b_timing__WF_SIGREF_EXPR' in Token
+                        if isinstance(subchild, Token) and subchild.type == "b_timing__WF_SIGREF_EXPR":
+                            timing_data.signal = subchild.value
+                        # if subchild is Token and subchild.type is 'b_timing__WFC_LIST', then get value
+                        if isinstance(subchild, Token) and subchild.type == "b_timing__WFC_LIST":
+                            timing_data.wfc = subchild.value
+                        if (isinstance(subchild, Tree)
+                         and subchild.data == "b_timing__time_offset"
+                         and len(subchild.children) == 2):
+                            self._process_single_time_offset(subchild, timing_data, time_values, edge_values)
+                        if (isinstance(subchild, Tree) and subchild.data == "b_timing__close_wfcs_block"):
+                            # 将提取的数据分配到TimingData的相应字段
+                            self._assign_timing_data(timing_data, time_values, edge_values)
+                            # ==================== TimingData 拆分逻辑 ====================
+                            timing_list = self._split_timing_data(timing_data)
+                            timings[wft].extend(timing_list)
+                            time_values.clear()
+                            edge_values.clear()
+                            timing_data = TimingData()
+                            timing_data.wft = wft
+                            timing_data.period = period
+        return timings
+
+    def _split_timing_data(self, timing_data: TimingData) -> None:
+        timing_data_list = []
+        if len(timing_data.wfc) > 1:
+            # 获取timing_data.edge1中是否存在和timing_data.wfc字符个数相同的字符串
+            edge1 = ""
+            if len(timing_data.e1) == len(timing_data.wfc):
+                edge1 = timing_data.e1
+            else:
+                edge1 = timing_data.e1 * len(timing_data.wfc)
+            if (edge1.strip() != ""):
+                # 创建TimingData，把timing_data.edge1拆分多个TimingData，并添加到timing_data_list
+                for i in range(len(edge1)):
+                    timing_data_child = TimingData()
+                    timing_data_child.wft = timing_data.wft
+                    timing_data_child.period = timing_data.period
+                    timing_data_child.signal = timing_data.signal
+                    timing_data_child.wfc = timing_data.wfc[i:i+1]
+                    timing_data_child.t1 = timing_data.t1
+                    timing_data_child.e1 = timing_data.e1[i:i+1]
+                    timing_data_list.append(timing_data_child)
+                    timing_data.twas.append(timing_data_child)
+            edge2 = ""
+            if len(timing_data.e2) == len(timing_data.wfc):
+                edge2 = timing_data.e2
+            else:
+                edge2 = timing_data.e2 * len(timing_data.wfc)
+            if (edge2.strip() != ""):
+                # 如果timing_data.edge2也存在多个字符，判断是否和timing_wfc字符数相同, 如果相同添加到timing_data_List中的TimingData中
+                for i in range(len(edge2)):
+                    timing_data_child = timing_data_list[i]
+                    timing_data_child.wft = timing_data.wft
+                    timing_data_child.period = timing_data.period
+                    timing_data_child.signal = timing_data.signal
+                    timing_data_child.wfc = timing_data.wfc[i:i+1]
+                    timing_data_child.time2 = timing_data.t2
+                    timing_data_child.edge2 = timing_data.e2[i:i+1]
+            edge3 = ""
+            if len(timing_data.e3) == len(timing_data.wfc):
+                edge3 = timing_data.e3
+            else:
+                edge3 = timing_data.e3 * len(timing_data.wfc)
+            if (edge3.strip() != ""):
+                # 如果timing_data.edge3也存在多个字符，判断是否和timing_wfc字符数相同，如果相同添加到timing_data_List中的TimingData中
+                for i in range(len(edge3)):
+                    timing_data_child = timing_data_list[i]
+                    timing_data_child.wft = timing_data.wft
+                    timing_data_child.period = timing_data.period
+                    timing_data_child.signal = timing_data.signal
+                    timing_data_child.wfc = timing_data.wfc[i:i+1]
+                    timing_data_child.time3 = timing_data.t3
+                    timing_data_child.edge3 = timing_data.e3[i:i+1]
+            edge4 = ""
+            if len(timing_data.e4) == len(timing_data.wfc):
+                edge4 = timing_data.e4
+            else:
+                edge4 = timing_data.e4 * len(timing_data.wfc)
+            if (edge4.strip() != ""):
+                # 如果timing_data.edge4也存在多个字符，判断是否和timing_wfc字符数相同，如果相同添加到timing_data_List中的TimingData中
+                for i in range(len(edge4)):
+                    timing_data_child = timing_data_list[i]
+                    timing_data_child.wft = timing_data.wft
+                    timing_data_child.period = timing_data.period
+                    timing_data_child.signal = timing_data.signal
+                    timing_data_child.wfc = timing_data.wfc[i:i+1]
+                    timing_data_child.time4 = timing_data.t4
+                    timing_data_child.edge4 = timing_data.e4[i:i+1]
+        else:
+            timing_data_list.append(timing_data)
+        return timing_data_list
+
+    def _process_single_time_offset(self, time_offset_node: Tree,
+             timing_data: TimingData, time_values: List, edge_values: List) -> None:
+        """处理单个time_offset节点，提取所有time/edge对"""
+        for child in time_offset_node.children:
+            if isinstance(child, Token) and child.type == "b_timing__TIME_EXPR":
+                # 检查是否是时间表达式
+                time_values.append(child.value)
+            # if child is Token and child.typ=='b_timing__EVENT' 
+            if isinstance(child, Token) and child.type == "b_timing__EVENT":
+            # 检查是否是事件/边沿
+                edge_values.append(child.value)
+            # if child is Tree and child.data == "b_timing__events"
+            if isinstance(child, Tree) and child.data == "b_timing__events":
+                edges = "";
+                for subchild in child.children:
+                    if isinstance(subchild, Token) and subchild.type == "b_timing__EVENT":
+                        edges += subchild.value
+                edge_values.append(edges)
+                    
+
+    def _is_timing_event(self, value: str) -> bool:
+        """检查给定值是否为有效的时序事件"""
+        timing_events = {
+            'D', 'U', 'P', 'Z',  # Force events
+            'L', 'H', 'X', 'x', 'T', 'V',  # Compare events
+            'l', 'h', 't', 'v',  # Window events
+            'ForceDown', 'ForceUp', 'ForcePrior', 'ForceOff',
+            'CompareLow', 'CompareHigh', 'CompareUnknown', 'CompareOff',
+            'CompareValid', 'CompareLowWindow', 'CompareHighWindow',
+            'CompareOffWindow', 'CompareValidWindow'
+        }
+        return value in timing_events
+
+    def _assign_timing_data(self, timing_data: TimingData, times: List[str], edges: List[str]) -> None:
+        """将时间和边沿数据分配到TimingData对象的相应字段"""
+        # 处理时间/边沿对，最多支持4对
+        max_pairs = min(4, len(times), len(edges))
+        
+        for i in range(max_pairs):
+            time_attr = f"t{i+1}"
+            edge_attr = f"e{i+1}"
+            
+            if hasattr(timing_data, time_attr) and hasattr(timing_data, edge_attr):
+                setattr(timing_data, time_attr, times[i].replace("'", ""))
+                setattr(timing_data, edge_attr, edges[i])
 
     # ========================== get vec data ==========================
     def expand_vec_data(self, data: str) -> str:
@@ -213,14 +376,36 @@ class STILToGascStream():
         if not self.pattern_section_started:
             self.output_file.write("SPM_PATTERN (SCAN) {\n")
             self.pattern_section_started = True
-
-        self.output_file.write(f"       *{vec}*{instr};")
+        line = f"       *{vec}*"
+        if instr:
+            line += f"#{instr}"
         if wft:
-            self.output_file.write(f"{wft};")
-        if label_value: # strip ':' and '"'
-            self.output_file.write(f"{label_value.strip(":").strip("\"")};")
-        self.output_file.write("\n")
-        
+            line += f";{wft}"
+        if label_value:
+            line += f"{label_value.strip(":").strip("\"")}"
+        self.output_file.write(line + "\n")
+
+    def emit_streaming(self, vec: str, micro_tokens: List[str], current_wft: str, wft_pending: bool, label_value: str) -> None:
+        """输出单个模式行（流式处理）"""
+        wft = current_wft if wft_pending else ""
+        if wft_pending:
+            self.wft_pending = False
+        instr = " ".join(micro_tokens)
+        if instr == "V":
+            instr = ""
+        # if len(micro_tokens) == 2 and micro_tokens[0] == "Loop":
+        #     # 如果 micro_tokens[1] 是数字并且大于0，则根据 micro_tokens[1]循环
+        #     count = micro_tokens[1]
+        #     if count.isdigit() and int(count) > 0:
+        #         self.progress_callback(f"解析Loop {count}")
+        #         for i in range(int(count)):
+        #             self.write_pattern_line_streaming(vec, "", wft, label_value)
+        #             if i % 5000 == 0:
+        #                 self.progress_callback(f"已处理 {i} / {count} 个向量")
+        #         self.vector_count += int(count)
+        #         self.progress_callback(f"已处理 {self.vector_count:,} 个向量")
+        # else:
+        self.write_pattern_line_streaming(vec, instr, wft, label_value)
         # Update progress counter
         self.vector_count += 1
         # 优化进度更新频率：前10000个每1000更新，之后每5000更新
@@ -229,15 +414,8 @@ class STILToGascStream():
             progress = self.read_size / self.file_size * 100
             self.progress_callback(f"已处理 {self.vector_count:,} 个向量，进度:{progress:.1f}%...")
 
-    def emit_streaming(self, vec: str, instr: str, current_wft: str, wft_pending: bool, label_value: str) -> None:
-        """输出单个模式行（流式处理）"""
-        wft = current_wft if wft_pending else ""
-        if wft_pending:
-            self.wft_pending = False
-        self.write_pattern_line_streaming(vec, instr, wft, label_value)
-
     # get Tree under b_pattern__pattern_statements_
-    def process_streaming(self, node: Tree, signal_count: int) -> None:
+    def process_streaming(self, node: Tree, micro_tokens: List[str], signal_count: int) -> None:
         """递归处理模式语句节点（流式输出）"""
         # if node is Token and node.type is LABEL, record node.value to next pattern_statement
         if isinstance(node, Token) and node.type == "LABEL":
@@ -248,7 +426,7 @@ class STILToGascStream():
         data = node.data
         if data.endswith("pattern_statement"):
             for child in node.children:
-                self.process_streaming(child, signal_count)
+                self.process_streaming(child, micro_tokens, signal_count)
             return
         # skip annotation, open_pattern_block, close_pattern_block
         if (data.endswith("annotation")
@@ -263,10 +441,10 @@ class STILToGascStream():
                 self.wft_pending = True
             return
         # get micro-instruction from pattern_statement
-        micro_tokens = [c.value for c in node.children if isinstance(c, Token)][:2]
-        micro = " ".join(micro_tokens)
-        if micro == "V":
-            micro = ""
+        micro_tokens_temp = [c.value for c in node.children if isinstance(c, Token)][:2]
+        mirco = " ".join(micro_tokens_temp)
+        if (mirco != "V"):
+            micro_tokens = micro_tokens_temp
         # get vec_block Tree under b_pattern__pattern_statements_
         has_vec = any(isinstance(ch, Tree) and ch.data.endswith("vec_block") for ch in node.children)
         # get pattern_statement Tree under b_pattern__pattern_statements_
@@ -283,18 +461,23 @@ class STILToGascStream():
                             self.pat_header.append(vec_tokens[0].strip())
                         vec_parts.append(self.expand_vec_data(vec_tokens[-1].strip()))
             vec = "".join(vec_parts)
+            # if vec length < signal_count, then add X to vec_parts
+            if len(vec) < signal_count:
+                vec += "X" * (signal_count - len(vec))
+            # create method to transform vec char to other char
+            vec = self.transform_vec_char(vec)
             self.need_append_header = False
-            self.emit_streaming(vec, micro, self.current_wft, self.wft_pending, self.label_value)
+            self.emit_streaming(vec, micro_tokens, self.current_wft, self.wft_pending, self.label_value)
             # label_value only used for one pattern_statement
             self.label_value = ""
             return
         if nested:
             for child in nested:
-                self.process_streaming(child, signal_count)
+                self.process_streaming(child, micro_tokens, signal_count)
             return
 
         vec = "X" * signal_count
-        self.emit_streaming(vec, micro, self.current_wft, self.wft_pending)
+        self.emit_streaming(vec, micro_tokens, self.current_wft, self.wft_pending)
 
     # ========================== main convert method ==========================
     def convert(self) -> int:
@@ -360,7 +543,18 @@ class STILToGascStream():
                         self.output_file.write("}\n\n")
                         
                     # Write timing to single file
-                    self.write_timing(tree)
+                    self.output_file.write("Timing {\n")
+                    timings = self.write_timing(tree)
+                    # write timings to file
+                    for key, timing in timings.items():
+                        for timing_data in timing:
+                            self.output_file.write(f"     {timing_data.wft}, {timing_data.period}, ")
+                            self.output_file.write(f"{timing_data.signal}, {timing_data.wfc}, ")
+                            self.output_file.write(f"{timing_data.t1}, {timing_data.e1}, ")
+                            self.output_file.write(f"{timing_data.t2}, {timing_data.e2}, ")
+                            self.output_file.write(f"{timing_data.t3}, {timing_data.e3}, ")
+                            self.output_file.write(f"{timing_data.t4}, {timing_data.e4};\n")
+                    self.output_file.write("}\n\n")
 
                     if self.progress_callback:
                         self.progress_callback("信号/组/Timing转换完成...")
@@ -375,16 +569,16 @@ class STILToGascStream():
                 self.read_size += len(line)
                 statement_buffer = "".join(buffer_lines).strip()
                 try:
-                    if ('{' not in statement_buffer and (statement_buffer.endswith(';'))
-                        or statement_buffer.endswith('}')):
+                    # 如果包含'{'和'}'，并且数量相同就进入解析
+                    if ('{' in statement_buffer and '}' in statement_buffer
+                        and (statement_buffer.count('{') == statement_buffer.count('}'))):
                         tree = self.multi_parser.parse(statement_buffer)
-                        self.process_streaming(tree, signalCount)
+                        self.process_streaming(tree, [], signalCount)
                         buffer_lines.clear()
                         buffer_lines.append(line)
                         if self.debug:
                             print(f"解析成功: {statement_buffer}")
                             self.flush()
-
                         continue
                     # else append line to buffer_lines
                     buffer_lines.append(line)
@@ -405,8 +599,27 @@ class STILToGascStream():
             
         return 0
 
+    def transform_vec_char(self, vec: str) -> str:
+        """将vec中的字符转换为其他字符"""
+        """
+            wt1, 40ns, input_time_gen_0, 0, 0ns, D, , , , , , ;
+            wt1, 40ns, input_time_gen_0, 1, 0ns, U, , , , , , ;
+            wt1, 40ns, input_time_gen_0, N, 0ns, N, , , , , , ;
+            wt1, 40ns, _po_, L, 10ns, l, , , , , , ;
+            wt1, 40ns, _po_, H, 10ns, h, , , , , , ;
+            wt1, 40ns, _po_, X, 10ns, X, , , , , , ;
+            wt1, 40ns, _po_, T, 10ns, t, , , , , , ;
+            wt1, 40ns, _po_, Z, 10ns, Z, , , , , , ;
+            wt1, 40ns, _bidi_, 0, 0ns, Z, , , , , , ;
+            wt1, 40ns, _bidi_, 1, 0ns, , , , , , , ;
+            wt1, 40ns, _bidi_, Z, 0ns, , , , , , , ;
+            wt1, 40ns, _bidi_, N, 0ns, , , , , , , ;
+        """
+        return vec
+
     def finalize_header(self, signals: List[str], sig_groups: dict[str, List[str]]) -> None:
         """完善文件头部，确定最终的模式信号列表"""
+        # 使用第一条Vector的信号/信号组名，先从sig_groups中获取，获取不到则从signals中获取
         # Determine final signals based on pattern header
         final_signals = []
         for key in self.pat_header:
