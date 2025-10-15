@@ -88,6 +88,10 @@ class STILToGascStream():
         #self.progress_callback = None
         self.progress_callback = progress_callback
 
+        self.header_placeholder_size = 0  # 记录预留的Header空间大小
+        self.header_start_position = 0     # 记录Header开始位置
+        self._stop_requested = False       # 停止标志
+
         #debug = False
         self.debug = debug
         grammar_base = os.path.join(os.path.dirname(__file__), "..", "Semi_ATE", "STIL", "parsers", "grammars")
@@ -124,6 +128,12 @@ class STILToGascStream():
 
     def get_multi_parser(self):
         return self.multi_parser
+    
+    def stop(self):
+        """请求停止转换"""
+        self._stop_requested = True
+        if self.progress_callback:
+            self.progress_callback("用户请求停止转换...")
     
     # ========================== get signals and group ==========================
     # get signal name from tree
@@ -393,26 +403,26 @@ class STILToGascStream():
         instr = " ".join(micro_tokens)
         if instr == "V":
             instr = ""
-        # if len(micro_tokens) == 2 and micro_tokens[0] == "Loop":
-        #     # 如果 micro_tokens[1] 是数字并且大于0，则根据 micro_tokens[1]循环
-        #     count = micro_tokens[1]
-        #     if count.isdigit() and int(count) > 0:
-        #         self.progress_callback(f"解析Loop {count}")
-        #         for i in range(int(count)):
-        #             self.write_pattern_line_streaming(vec, "", wft, label_value)
-        #             if i % 5000 == 0:
-        #                 self.progress_callback(f"已处理 {i} / {count} 个向量")
-        #         self.vector_count += int(count)
-        #         self.progress_callback(f"已处理 {self.vector_count:,} 个向量")
-        # else:
-        self.write_pattern_line_streaming(vec, instr, wft, label_value)
-        # Update progress counter
-        self.vector_count += 1
-        # 优化进度更新频率：前10000个每1000更新，之后每5000更新
-        update_interval = 1000 if self.vector_count <= 10000 else 5000
-        if self.progress_callback and self.vector_count % update_interval == 0:
-            progress = self.read_size / self.file_size * 100
-            self.progress_callback(f"已处理 {self.vector_count:,} 个向量，进度:{progress:.1f}%...")
+        if len(micro_tokens) == 2 and micro_tokens[0] == "Loop":
+            # 如果 micro_tokens[1] 是数字并且大于0，则根据 micro_tokens[1]循环
+            count = micro_tokens[1]
+            if count.isdigit() and int(count) > 0:
+                self.progress_callback(f"解析Loop {count}")
+                for i in range(int(count)):
+                    self.write_pattern_line_streaming(vec, "", wft, label_value)
+                    if i % 5000 == 0:
+                        self.progress_callback(f"已处理 {i} / {count} 个向量")
+                self.vector_count += int(count)
+                self.progress_callback(f"已处理 {self.vector_count:,} 个向量")
+        else:
+            self.write_pattern_line_streaming(vec, instr, wft, label_value)
+            # Update progress counter
+            self.vector_count += 1
+            # 优化进度更新频率：前10000个每1000更新，之后每5000更新
+            update_interval = 1000 if self.vector_count <= 10000 else 5000
+            if self.progress_callback and self.vector_count % update_interval == 0:
+                progress = self.read_size / self.file_size * 100
+                self.progress_callback(f"已处理 {self.vector_count:,} 个向量，进度:{progress:.1f}%...")
 
     # get Tree under b_pattern__pattern_statements_
     def process_streaming(self, node: Tree, micro_tokens: List[str], signal_count: int) -> None:
@@ -510,6 +520,11 @@ class STILToGascStream():
             if self.progress_callback:
                 self.progress_callback("开始提取信号/组/Timing内容...")
             for line in f:
+                # 检查停止标志
+                if self._stop_requested:
+                    if self.progress_callback:
+                        self.progress_callback("转换已被用户停止")
+                    return -1
                 self.read_size += len(line)
                 if (line.strip().startswith('Pattern ') and '{' in line):
                     isPattern = True;
@@ -530,6 +545,14 @@ class STILToGascStream():
                     if self.progress_callback:
                         self.progress_callback(f"找到 {signalCount} 个信号...")
                    
+                    # 在得到signals和sig_groups后，计算并预留Header空间
+                    # 估算每个信号255个字符
+                    estimated_header_size = signalCount * 255 + 1000  # 额外1000字节用于 "HEADER { \n" 等固定内容
+                    self.header_start_position = self.output_file.tell()
+                    placeholder = " " * estimated_header_size + "\n"
+                    self.output_file.write(placeholder)
+                    self.header_placeholder_size = estimated_header_size
+
                     # Write signals
                     self.output_file.write("Signals {\n")
                     self.output_file.write("     " + ",".join(signals) + ";\n\n")
@@ -566,38 +589,53 @@ class STILToGascStream():
             if self.progress_callback:
                 self.progress_callback("开始转换Pattern内容...")
             for line in f:
+                # 检查停止标志
+                if self._stop_requested:
+                    if self.progress_callback:
+                        self.progress_callback("停止解析，开始完成文件收尾工作...")
+                    break
                 self.read_size += len(line)
-                statement_buffer = "".join(buffer_lines).strip()
                 try:
+                    # if startwith // ,than continue
+                    if line.strip().startswith('//'):
+                        continue
+                    # else append line to buffer_lines
+                    buffer_lines.append(line)
+                    statement_buffer = "".join(buffer_lines).strip()
                     # 如果包含'{'和'}'，并且数量相同就进入解析
                     if ('{' in statement_buffer and '}' in statement_buffer
                         and (statement_buffer.count('{') == statement_buffer.count('}'))):
                         tree = self.multi_parser.parse(statement_buffer)
                         self.process_streaming(tree, [], signalCount)
                         buffer_lines.clear()
-                        buffer_lines.append(line)
                         if self.debug:
                             print(f"解析成功: {statement_buffer}")
                             self.flush()
                         continue
-                    # else append line to buffer_lines
-                    buffer_lines.append(line)
                 except LarkError: 
-                    buffer_lines.append(line)
                     if self.debug:
                         print(f"解析失败: {line}")
                 except Exception as e:
-                    buffer_lines.append(line)
                     if self.debug:
                         print(f"其他错误: {e}")
             if self.progress_callback:
                 self.progress_callback(f"已处理 {self.vector_count:,} 个向量，进度:{100:.1f}%...")
+        
+        # 关闭文件并完成收尾工作
         self.close()
+        if self._stop_requested:
+            if self.progress_callback:
+                self.progress_callback(f"正在完成Header写入（已处理 {self.vector_count} 个向量）...")
         self.finalize_header(signals, sig_groups)
-        if self.progress_callback:
-            self.progress_callback(f"转换完成！总共处理了 {self.vector_count} 个向量")
-            
-        return 0
+        
+        if self._stop_requested:
+            if self.progress_callback:
+                self.progress_callback(f"转换已停止！总共处理了 {self.vector_count} 个向量")
+            return -1
+        else:
+            if self.progress_callback:
+                self.progress_callback(f"转换完成！总共处理了 {self.vector_count} 个向量")
+            return 0
 
     def transform_vec_char(self, vec: str) -> str:
         """将vec中的字符转换为其他字符"""
@@ -617,34 +655,66 @@ class STILToGascStream():
         """
         return vec
 
+
     def finalize_header(self, signals: List[str], sig_groups: dict[str, List[str]]) -> None:
-        """完善文件头部，确定最终的模式信号列表"""
-        # 使用第一条Vector的信号/信号组名，先从sig_groups中获取，获取不到则从signals中获取
-        # Determine final signals based on pattern header
+        """完善文件头部，直接在预留空间中写入Header"""
+        # 确定最终的模式信号列表
         final_signals = []
         for key in self.pat_header:
             if key in sig_groups:
                 final_signals.extend(sig_groups[key])
             elif key in signals:
                 final_signals.append(key)
-        # We need to close current file and rewrite with proper header
-        if self.output_file:
-            temp_file = self.target_file + ".tmp"
-            # Write complete header to temp file
-            with open(temp_file, "w", encoding="utf-8") as temp_fh:
-                # Write proper header
-                temp_fh.write("HEADER { \n")
-                temp_fh.write("     " + ",".join(final_signals) + ";\n")
-                temp_fh.write("}\n\n")
-                # Copy pattern section from original file
-                self.output_file.close()
-                with open(self.target_file, "r", encoding="utf-8") as orig_fh:
-                    content = orig_fh.read()
-                temp_fh.write(content)
-                temp_fh.write("}\n")
-            # Replace original with temp file
-            import shutil
-            shutil.move(temp_file, self.target_file)
+        
+        # 生成Header内容
+        header_content = "HEADER { \n"
+        header_content += "     " + ",".join(final_signals) + ";\n"
+        header_content += "}\n\n"
+        
+        # 检查Header大小是否超出预留空间
+        if len(header_content) > self.header_placeholder_size:
+            if self.progress_callback:
+                self.progress_callback(f"警告：Header大小({len(header_content)})超出预留空间({self.header_placeholder_size})")
+            # 如果超出，只能回退到使用临时文件的方式
+            self._finalize_header_with_temp_file(final_signals)
+            return
+        
+        # 在预留空间中填充实际的Header
+        # 填充到预留大小，保证文件结构不变
+        padded_header = header_content.ljust(self.header_placeholder_size) + "\n"
+        
+        # 打开文件，seek到Header开始位置，覆盖写入
+        with open(self.target_file, "r+", encoding="utf-8") as f:
+            f.seek(self.header_start_position)
+            f.write(padded_header)
+    # def finalize_header(self, signals: List[str], sig_groups: dict[str, List[str]]) -> None:
+    #     """完善文件头部，确定最终的模式信号列表"""
+    #     # 使用第一条Vector的信号/信号组名，先从sig_groups中获取，获取不到则从signals中获取
+    #     # Determine final signals based on pattern header
+    #     final_signals = []
+    #     for key in self.pat_header:
+    #         if key in sig_groups:
+    #             final_signals.extend(sig_groups[key])
+    #         elif key in signals:
+    #             final_signals.append(key)
+    #     # We need to close current file and rewrite with proper header
+    #     if self.output_file:
+    #         temp_file = self.target_file + ".tmp"
+    #         # Write complete header to temp file
+    #         with open(temp_file, "w", encoding="utf-8") as temp_fh:
+    #             # Write proper header
+    #             temp_fh.write("HEADER { \n")
+    #             temp_fh.write("     " + ",".join(final_signals) + ";\n")
+    #             temp_fh.write("}\n\n")
+    #             # Copy pattern section from original file
+    #             self.output_file.close()
+    #             with open(self.target_file, "r", encoding="utf-8") as orig_fh:
+    #                 content = orig_fh.read()
+    #             temp_fh.write(content)
+    #             temp_fh.write("}\n")
+    #         # Replace original with temp file
+    #         import shutil
+    #         shutil.move(temp_file, self.target_file)
 
     def close(self):
         if self.output_file and not self.output_file.closed:
