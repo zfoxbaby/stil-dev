@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import os
 import re
+import sys
 import time
 
 from lark import Lark
@@ -38,7 +39,13 @@ class STILParser(STILLark):
         # This choice impacts calculation of the total VA
         self.expanding_procs = expanding_procs
 
-        grammar_base_file = os.path.dirname(__file__)
+        # 处理打包后的路径（PyInstaller）
+        if getattr(sys, 'frozen', False):
+            # 如果是打包后的exe
+            grammar_base_file = os.path.join(sys._MEIPASS, "Semi_ATE", "STIL", "parsers")
+        else:
+            # 如果是开发环境
+            grammar_base_file = os.path.dirname(__file__)
         # Adding main lark grammar file
         if stil_lark_file == None:
             grammar_file = os.path.join(str(grammar_base_file), "grammars", "stil.lark")

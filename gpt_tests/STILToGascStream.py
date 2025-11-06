@@ -94,7 +94,16 @@ class STILToGascStream():
 
         #debug = False
         self.debug = debug
-        grammar_base = os.path.join(os.path.dirname(__file__), "..", "Semi_ATE", "STIL", "parsers", "grammars")
+        
+        # 处理打包后的路径（PyInstaller）
+        if getattr(sys, 'frozen', False):
+            # 如果是打包后的exe
+            base_path = sys._MEIPASS
+        else:
+            # 如果是开发环境，获取项目根目录（当前文件在gpt_tests目录下，需要向上一级）
+            base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        grammar_base = os.path.join(base_path, "Semi_ATE", "STIL", "parsers", "grammars")
         # 构建完整的语法
         pattern_statements_file = os.path.join(grammar_base, "pattern_statements.lark")
         try:
@@ -186,7 +195,6 @@ class STILToGascStream():
         # construct TimingData
         for node in tree.find_data("timing_block"):
             timings = {};
-            timing_data_list = []
             # the timing_block contains b_timing__waveform_table
             for node in node.find_data("b_timing__waveform_table"):
                 wft = "";
@@ -263,12 +271,8 @@ class STILToGascStream():
                 # 如果timing_data.edge2也存在多个字符，判断是否和timing_wfc字符数相同, 如果相同添加到timing_data_List中的TimingData中
                 for i in range(len(edge2)):
                     timing_data_child = timing_data_list[i]
-                    timing_data_child.wft = timing_data.wft
-                    timing_data_child.period = timing_data.period
-                    timing_data_child.signal = timing_data.signal
-                    timing_data_child.wfc = timing_data.wfc[i:i+1]
-                    timing_data_child.time2 = timing_data.t2
-                    timing_data_child.edge2 = timing_data.e2[i:i+1]
+                    timing_data_child.t2 = timing_data.t2
+                    timing_data_child.e2 = timing_data.e2[i:i+1]
             edge3 = ""
             if len(timing_data.e3) == len(timing_data.wfc):
                 edge3 = timing_data.e3
@@ -278,12 +282,8 @@ class STILToGascStream():
                 # 如果timing_data.edge3也存在多个字符，判断是否和timing_wfc字符数相同，如果相同添加到timing_data_List中的TimingData中
                 for i in range(len(edge3)):
                     timing_data_child = timing_data_list[i]
-                    timing_data_child.wft = timing_data.wft
-                    timing_data_child.period = timing_data.period
-                    timing_data_child.signal = timing_data.signal
-                    timing_data_child.wfc = timing_data.wfc[i:i+1]
-                    timing_data_child.time3 = timing_data.t3
-                    timing_data_child.edge3 = timing_data.e3[i:i+1]
+                    timing_data_child.t3 = timing_data.t3
+                    timing_data_child.e3 = timing_data.e3[i:i+1]
             edge4 = ""
             if len(timing_data.e4) == len(timing_data.wfc):
                 edge4 = timing_data.e4
@@ -293,12 +293,8 @@ class STILToGascStream():
                 # 如果timing_data.edge4也存在多个字符，判断是否和timing_wfc字符数相同，如果相同添加到timing_data_List中的TimingData中
                 for i in range(len(edge4)):
                     timing_data_child = timing_data_list[i]
-                    timing_data_child.wft = timing_data.wft
-                    timing_data_child.period = timing_data.period
-                    timing_data_child.signal = timing_data.signal
-                    timing_data_child.wfc = timing_data.wfc[i:i+1]
-                    timing_data_child.time4 = timing_data.t4
-                    timing_data_child.edge4 = timing_data.e4[i:i+1]
+                    timing_data_child.t4 = timing_data.t4
+                    timing_data_child.e4 = timing_data.e4[i:i+1]
         else:
             timing_data_list.append(timing_data)
         return timing_data_list
@@ -407,13 +403,15 @@ class STILToGascStream():
             # 如果 micro_tokens[1] 是数字并且大于0，则根据 micro_tokens[1]循环
             count = micro_tokens[1]
             if count.isdigit() and int(count) > 0:
-                self.progress_callback(f"解析Loop {count}")
+                self.progress_callback(f"解析Loop, 需展开 {count}")
                 for i in range(int(count)):
+                    if self._stop_requested:
+                        break
                     self.write_pattern_line_streaming(vec, "", wft, label_value)
                     if i % 5000 == 0:
-                        self.progress_callback(f"已处理 {i} / {count} 个向量")
-                self.vector_count += int(count)
-                self.progress_callback(f"已处理 {self.vector_count:,} 个向量")
+                        self.progress_callback(f"Loop展开 {i} / {count} 个向量")
+                self.progress_callback(f"Loop展开 {count} 个向量")
+                self.vector_count += 1
         else:
             self.write_pattern_line_streaming(vec, instr, wft, label_value)
             # Update progress counter
@@ -422,7 +420,7 @@ class STILToGascStream():
             update_interval = 1000 if self.vector_count <= 10000 else 5000
             if self.progress_callback and self.vector_count % update_interval == 0:
                 progress = self.read_size / self.file_size * 100
-                self.progress_callback(f"已处理 {self.vector_count:,} 个向量，进度:{progress:.1f}%...")
+                self.progress_callback(f"已处理 {self.vector_count:,} 个向量块, 进度:{progress:.1f}%...")
 
     # get Tree under b_pattern__pattern_statements_
     def process_streaming(self, node: Tree, micro_tokens: List[str], signal_count: int) -> None:
@@ -619,7 +617,7 @@ class STILToGascStream():
                     if self.debug:
                         print(f"其他错误: {e}")
             if self.progress_callback:
-                self.progress_callback(f"已处理 {self.vector_count:,} 个向量，进度:{100:.1f}%...")
+                self.progress_callback(f"已处理 {self.vector_count:,} 个向量块，进度:{100:.1f}%...")
         
         # 关闭文件并完成收尾工作
         self.close()
@@ -630,11 +628,11 @@ class STILToGascStream():
         
         if self._stop_requested:
             if self.progress_callback:
-                self.progress_callback(f"转换已停止！总共处理了 {self.vector_count} 个向量")
+                self.progress_callback(f"转换已停止！总共处理了 {self.vector_count} 个向量块")
             return -1
         else:
             if self.progress_callback:
-                self.progress_callback(f"转换完成！总共处理了 {self.vector_count} 个向量")
+                self.progress_callback(f"转换完成！总共处理了 {self.vector_count} 个向量块")
             return 0
 
     def transform_vec_char(self, vec: str) -> str:

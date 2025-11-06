@@ -188,7 +188,7 @@ class ConverterGUI:
         try:
             if self.source_type.get() == "Specify File":
                 # 获取source_type的父路径，然后拼接一个gasc文件夹，如果文件夹不存在则创建
-                target = os.path.join(os.path.dirname(source), "gasc")
+                target = os.path.join(os.path.dirname(source), "converted")
                 if not os.path.exists(target):
                     os.makedirs(target)
                 self.convert_file(source, target)
@@ -197,7 +197,7 @@ class ConverterGUI:
                 stil_files = [f for f in os.listdir(source) if f.endswith(".stil")]
                 total_files = len(stil_files)
                 self.log(f"找到 {total_files} 个STIL文件")
-                target = os.path.join(os.path.dirname(source), "gasc")
+                target = os.path.join(os.path.dirname(source), "converted")
                 if not os.path.exists(target):
                     os.makedirs(target)
                 for index, filename in enumerate(stil_files, 1):
