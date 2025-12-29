@@ -16,11 +16,11 @@ def get_stil_file(file_name):
     return os.path.join(str(folder), "stil_files", "pattern_block", file_name)
 
 def test_syn_ok_pattern_block_actual_0():
-    stil_file = get_stil_file("C:/Users/admin/Desktop/1/stil-hu/STIL_TVIIC2D6M/STIL_TVIIC2D6M/BI_Initialization_r4.stil")
+    stil_file = get_stil_file("C:/Users/admin/Desktop/1/stil-hu/STIL_TVIIBH8M/STIL_TVIIBH8M/BI_Initialization_r4.stil")
 
     parser = STILParser(stil_file)
     contentTree = parser.parse_syntax(preprocess_include = False);
-    with open("C:/Users/admin/Desktop/1/stil-hu/STIL_TVIIC2D6M/STIL_TVIIC2D6M/output1.txt", "w", encoding="utf-8") as f:
+    with open("C:/Users/admin/Desktop/1/stil-hu/STIL_TVIIBH8M/STIL_TVIIBH8M/output2.txt", "w", encoding="utf-8") as f:
         f.write(contentTree.pretty())
     assert parser.err_line == -1
     assert parser.err_col == -1

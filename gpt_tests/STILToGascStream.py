@@ -30,12 +30,12 @@ OPTIMIZED VERSION with streaming output and real-time progress display.
 from __future__ import annotations
 
 import os
-from queue import Empty
 import sys
 from dataclasses import dataclass
-from typing import List
+from typing import List, Dict, Tuple
 from TimingData import TimingData
-from lark import Lark, Tree, Token, LarkError
+from STILParserUtils import STILParserUtils
+from PatternParser import PatternEventHandler, PatternStreamParser
 
 try:  # Try importing the package as an installed dependency first
     from Semi_ATE.STIL.parsers.STILParser import STILParser
@@ -43,8 +43,6 @@ except ImportError:  # pragma: no cover - fallback for local execution
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sys.path.insert(0, repo_root)
     from Semi_ATE.STIL.parsers.STILParser import STILParser
-
-from lark import Tree, Token
 
 
 @dataclass
@@ -54,7 +52,7 @@ class PatternLine:
     instr: str    # 微指令
     wft: str      # 波形表名称
 
-class STILToGascStream():
+class STILToGascStream(PatternEventHandler):
     """Convert STIL files to a simple GASC-like format - STREAMING OPTIMIZED VERSION."""
 
     def __init__(self, stil_file, target_file, progress_callback=None, debug=False):
@@ -63,577 +61,348 @@ class STILToGascStream():
         Args:
             stil_file: 输入STIL文件路径
             target_file: 输出GASC文件路径  
-            fast_mode: 是否启用快速模式（大文件优化）
+            progress_callback: 进度回调函数
+            debug: 是否开启调试模式
         """
         self.stil_file = stil_file
         self.target_file = target_file
         self.file_size = -1  # 文件大小
         self.read_size = 0  # 已读取字节数
+        
         # Pattern line tracking
         self.current_wft = ""
         self.wft_pending = False
         self.pat_header: List[str] = []
         self.need_append_header = True
-        self.label_value = ""
-
+        
         # Streaming output
-        #self.output_file = None
-        # Open output file for streaming
         self.output_file = open(target_file, "w", encoding="utf-8")
         self.header_written = False
         self.pattern_section_started = False
         
         # Progress tracking
         self.vector_count = 0
-        #self.progress_callback = None
         self.progress_callback = progress_callback
 
         self.header_placeholder_size = 0  # 记录预留的Header空间大小
         self.header_start_position = 0     # 记录Header开始位置
         self._stop_requested = False       # 停止标志
 
-        #debug = False
         self.debug = debug
         
-        # 处理打包后的路径（PyInstaller）
-        if getattr(sys, 'frozen', False):
-            # 如果是打包后的exe
-            base_path = sys._MEIPASS
-        else:
-            # 如果是开发环境，获取项目根目录（当前文件在gpt_tests目录下，需要向上一级）
-            base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-        grammar_base = os.path.join(base_path, "Semi_ATE", "STIL", "parsers", "grammars")
-        # 构建完整的语法
-        pattern_statements_file = os.path.join(grammar_base, "pattern_statements.lark")
-        try:
-            # 读取pattern_statements语法（它会自动通过import_paths导入base.lark）
-            with open(pattern_statements_file, 'r') as f:
-                pattern_grammar = f.read()
-            
-            # 添加空格和注释忽略规则（让解析器忽略空格和注释）
-            ignore_whitespace = """
-            %import common.WS
-            %ignore WS
-            %import common.CPP_COMMENT  
-            %ignore CPP_COMMENT
-            %import common.NEWLINE
-            %ignore NEWLINE
-            """
-            # 创建能解析多个pattern_statement的语法
-            multi_grammar = """
-            start: pattern_statement+
-            """ + pattern_grammar + ignore_whitespace
-            
-            self.multi_parser = Lark(
-                multi_grammar,
-                start="start",
-                parser="lalr",
-                import_paths=[grammar_base]
-            )
-            print("Pattern语句解析器初始化成功")
-        except Exception as e:
-            print(f"Pattern语句解析器初始化失败: {e}")
-
-    def get_multi_parser(self):
-        return self.multi_parser
+        # 通用解析工具
+        self.parser_utils = STILParserUtils(debug=debug)
+        
+        # Pattern 解析器（延迟初始化）
+        self.pattern_parser = None
+        
+        # 信号和信号组（从header解析中获取）
+        self.signals: List[str] = []
+        self.signal_groups: Dict[str, List[str]] = {}
+        self.signal_count = 0
     
     def stop(self):
         """请求停止转换"""
         self._stop_requested = True
+        if self.pattern_parser:
+            self.pattern_parser.stop()
         if self.progress_callback:
             self.progress_callback("用户请求停止转换...")
+
+    # ========================== PatternEventHandler 回调实现 ==========================
     
-    # ========================== get signals and group ==========================
-    # get signal name from tree
-    def extract_signals(self, tree: Tree) -> List[str]:
-        """从Signals块提取信号名称列表"""
-        signals: List[str] = []
-        
-        # Keep original node name that works
-        for node in tree.find_data("b_signals__signals_list"):
-            token = node.children[0]
-            if isinstance(token, Token):
-                signals.append(token.value.strip("\""))
-        return signals
-    
-    # get signal group name from tree
-    def extract_signal_groups(self, tree: Tree) -> dict[str, List[str]]:
-        """从SignalGroups块提取信号组映射关系"""
-        groups: dict[str, List[str]] = {}
-        
-        for node in tree.find_data("signal_groups_block"):
-            # get second elemet in children of signal_groups_block and get value
-            if (isinstance(node.children[1], Token)):
-                name_ref = node.children[1].value
-                print(name_ref)
-            else:
-                name_ref = ""
-            # Keep original node name that works
-            for node in node.find_data("b_signal_groups__signal_groups_list"):
-                tokens = [c for c in node.children if isinstance(c, Token)]
-                if len(tokens) < 2:
-                    continue
-                name = tokens[0].value
-                sigs: List[str] = [tokens[1].value.strip("\"")]
-                
-                for vb in node.find_data("b_signal_groups__sigref_expr"):
-                    # for nin vb.children, if n.type is b_signal_groups__SIGREF_NAME, then add n.value to sigs
-                    for n in vb.children:
-                        if isinstance(n, Token) and n.type == "b_signal_groups__SIGREF_NAME":
-                            sigs.append(n.value.strip("\""))
-                if name_ref != "":
-                    groups[name_ref + "." + name] = sigs
-                else:
-                    groups[name] = sigs
-        return groups
-
-    # ========================== get timings ==========================
-    # get timing from tree
-    def write_timing(self, tree: Tree) -> {str, List[TimingData]}:
-        """从Timing块提取Timing信息"""
-        # construct TimingData
-        for node in tree.find_data("timing_block"):
-            timings = {};
-            # the timing_block contains b_timing__waveform_table
-            for node in node.find_data("b_timing__waveform_table"):
-                wft = "";
-                period = "";
-                for child in node.children:
-                    # get b_timing__WFT_NAME from b_timing__waveform_table
-                    if isinstance(child, Token) and child.type == "b_timing__WFT_NAME":
-                        wft = child.value
-                    # get 'b_timing__period' from b_timing__waveform_table
-                    if (isinstance(child, Tree)
-                     and child.data == "b_timing__period"
-                     and len(child.children) == 2):
-                        if isinstance(child.children[1], Token):
-                            period = child.children[1].value.replace("'", "");
-                timings.setdefault(wft, [])
-                # get 'b_timing__waveforms_list' from b_timing__waveform_table
-                for child in node.find_data("b_timing__waveforms_list"):
-                    time_values = []
-                    edge_values = []
-                    timing_data = TimingData()
-                    timing_data.wft = wft
-                    timing_data.period = period
-                    for subchild in child.children:
-                        # get signal form 'b_timing__WF_SIGREF_EXPR' in Token
-                        if isinstance(subchild, Token) and subchild.type == "b_timing__WF_SIGREF_EXPR":
-                            timing_data.signal = subchild.value
-                        # if subchild is Token and subchild.type is 'b_timing__WFC_LIST', then get value
-                        if isinstance(subchild, Token) and subchild.type == "b_timing__WFC_LIST":
-                            timing_data.wfc = subchild.value
-                        if (isinstance(subchild, Tree)
-                         and subchild.data == "b_timing__time_offset"
-                         and len(subchild.children) == 2):
-                            self._process_single_time_offset(subchild, timing_data, time_values, edge_values)
-                        if (isinstance(subchild, Tree) and subchild.data == "b_timing__close_wfcs_block"):
-                            # 将提取的数据分配到TimingData的相应字段
-                            self._assign_timing_data(timing_data, time_values, edge_values)
-                            # ==================== TimingData 拆分逻辑 ====================
-                            timing_list = self._split_timing_data(timing_data)
-                            timings[wft].extend(timing_list)
-                            time_values.clear()
-                            edge_values.clear()
-                            timing_data = TimingData()
-                            timing_data.wft = wft
-                            timing_data.period = period
-        return timings
-
-    def _split_timing_data(self, timing_data: TimingData) -> None:
-        timing_data_list = []
-        if len(timing_data.wfc) > 1:
-            # 获取timing_data.edge1中是否存在和timing_data.wfc字符个数相同的字符串
-            edge1 = ""
-            if len(timing_data.e1) == len(timing_data.wfc):
-                edge1 = timing_data.e1
-            else:
-                edge1 = timing_data.e1 * len(timing_data.wfc)
-            if (edge1.strip() != ""):
-                # 创建TimingData，把timing_data.edge1拆分多个TimingData，并添加到timing_data_list
-                for i in range(len(edge1)):
-                    timing_data_child = TimingData()
-                    timing_data_child.wft = timing_data.wft
-                    timing_data_child.period = timing_data.period
-                    timing_data_child.signal = timing_data.signal
-                    timing_data_child.wfc = timing_data.wfc[i:i+1]
-                    timing_data_child.t1 = timing_data.t1
-                    timing_data_child.e1 = timing_data.e1[i:i+1]
-                    timing_data_list.append(timing_data_child)
-                    timing_data.twas.append(timing_data_child)
-            edge2 = ""
-            if len(timing_data.e2) == len(timing_data.wfc):
-                edge2 = timing_data.e2
-            else:
-                edge2 = timing_data.e2 * len(timing_data.wfc)
-            if (edge2.strip() != ""):
-                # 如果timing_data.edge2也存在多个字符，判断是否和timing_wfc字符数相同, 如果相同添加到timing_data_List中的TimingData中
-                for i in range(len(edge2)):
-                    timing_data_child = timing_data_list[i]
-                    timing_data_child.t2 = timing_data.t2
-                    timing_data_child.e2 = timing_data.e2[i:i+1]
-            edge3 = ""
-            if len(timing_data.e3) == len(timing_data.wfc):
-                edge3 = timing_data.e3
-            else:
-                edge3 = timing_data.e3 * len(timing_data.wfc)
-            if (edge3.strip() != ""):
-                # 如果timing_data.edge3也存在多个字符，判断是否和timing_wfc字符数相同，如果相同添加到timing_data_List中的TimingData中
-                for i in range(len(edge3)):
-                    timing_data_child = timing_data_list[i]
-                    timing_data_child.t3 = timing_data.t3
-                    timing_data_child.e3 = timing_data.e3[i:i+1]
-            edge4 = ""
-            if len(timing_data.e4) == len(timing_data.wfc):
-                edge4 = timing_data.e4
-            else:
-                edge4 = timing_data.e4 * len(timing_data.wfc)
-            if (edge4.strip() != ""):
-                # 如果timing_data.edge4也存在多个字符，判断是否和timing_wfc字符数相同，如果相同添加到timing_data_List中的TimingData中
-                for i in range(len(edge4)):
-                    timing_data_child = timing_data_list[i]
-                    timing_data_child.t4 = timing_data.t4
-                    timing_data_child.e4 = timing_data.e4[i:i+1]
-        else:
-            timing_data_list.append(timing_data)
-        return timing_data_list
-
-    def _process_single_time_offset(self, time_offset_node: Tree,
-             timing_data: TimingData, time_values: List, edge_values: List) -> None:
-        """处理单个time_offset节点，提取所有time/edge对"""
-        for child in time_offset_node.children:
-            if isinstance(child, Token) and child.type == "b_timing__TIME_EXPR":
-                # 检查是否是时间表达式
-                time_values.append(child.value)
-            # if child is Token and child.typ=='b_timing__EVENT' 
-            if isinstance(child, Token) and child.type == "b_timing__EVENT":
-            # 检查是否是事件/边沿
-                edge_values.append(child.value)
-            # if child is Tree and child.data == "b_timing__events"
-            if isinstance(child, Tree) and child.data == "b_timing__events":
-                edges = "";
-                for subchild in child.children:
-                    if isinstance(subchild, Token) and subchild.type == "b_timing__EVENT":
-                        edges += subchild.value
-                edge_values.append(edges)
-                    
-
-    def _is_timing_event(self, value: str) -> bool:
-        """检查给定值是否为有效的时序事件"""
-        timing_events = {
-            'D', 'U', 'P', 'Z',  # Force events
-            'L', 'H', 'X', 'x', 'T', 'V',  # Compare events
-            'l', 'h', 't', 'v',  # Window events
-            'ForceDown', 'ForceUp', 'ForcePrior', 'ForceOff',
-            'CompareLow', 'CompareHigh', 'CompareUnknown', 'CompareOff',
-            'CompareValid', 'CompareLowWindow', 'CompareHighWindow',
-            'CompareOffWindow', 'CompareValidWindow'
-        }
-        return value in timing_events
-
-    def _assign_timing_data(self, timing_data: TimingData, times: List[str], edges: List[str]) -> None:
-        """将时间和边沿数据分配到TimingData对象的相应字段"""
-        # 处理时间/边沿对，最多支持4对
-        max_pairs = min(4, len(times), len(edges))
-        
-        for i in range(max_pairs):
-            time_attr = f"t{i+1}"
-            edge_attr = f"e{i+1}"
-            
-            if hasattr(timing_data, time_attr) and hasattr(timing_data, edge_attr):
-                setattr(timing_data, time_attr, times[i].replace("'", ""))
-                setattr(timing_data, edge_attr, edges[i])
-
-    # ========================== get vec data ==========================
-    def expand_vec_data(self, data: str) -> str:
-        """展开向量数据中的重复指令，如 \\r98 X
-        
-        支持的格式：
-        1. \\r98 X -> XXXXXXX...
-        2. XLLL \\r98 X HHH \\r4 H LL -> XLLLXXXXXXX...HHHHHHHLL
-        """
-        import re
-        
-        # 使用正则表达式匹配 \r数字 后跟一个或多个字符的模式
-        # 模式: \r后跟数字，然后是空格，然后是要重复的内容
-        pattern = r'\\r(\d+)\s+([^\s\\]+)'
-        
-        def replace_repeat(match):
-            repeat_count = int(match.group(1))
-            repeat_content = match.group(2)
-            return repeat_content * repeat_count
-        
-        # 反复应用替换，直到没有更多的重复指令
-        result = data
-        while '\\r' in result:
-            new_result = re.sub(pattern, replace_repeat, result)
-            if new_result == result:  # 没有更多替换，避免无限循环
-                break
-            result = new_result
-        
-        # 去除多余的空格
-        result = re.sub(r'\s+', '', result)
-        
-        return result
-
-    def write_pattern_line_streaming(self, vec: str, instr: str, wft: str, label_value: str) -> None:
-        """流式写入模式行数据到输出文件"""
+    def on_parse_start(self) -> None:
+        """解析开始"""
         if not self.pattern_section_started:
             self.output_file.write("SPM_PATTERN (SCAN) {\n")
             self.pattern_section_started = True
+    
+    def on_waveform_change(self, wft_name: str) -> None:
+        """波形表切换"""
+        self.current_wft = wft_name
+        self.wft_pending = True
+    
+    def on_label(self, label_name: str) -> None:
+        """遇到标签 - GASC 格式将 label 附加在向量行后面，暂存"""
+        pass  # GASC 不需要单独的 label 行
+    
+    def on_vector(self, vec_data_list: List[Tuple[str, str]], 
+                  instr: str = "", param: str = "") -> None:
+        """遇到向量数据"""
+        # 构建向量字符串
+        vec = self._build_vector_string(vec_data_list)
+        
+        # 格式化微指令
+        formatted_instr = f"{instr} {param}".strip() if param else instr
+        if formatted_instr == "V":
+            formatted_instr = ""
+        
+        # 格式化波形表
+        wft = self.current_wft if self.wft_pending else ""
+        if self.wft_pending:
+            self.wft_pending = False
+        
+        # 写入向量行
+        self._write_vector_line(vec, formatted_instr, wft, "")
+        
+        # 进度更新
+        update_interval = 1000 if self.vector_count <= 10000 else 5000
+        if self.progress_callback and self.vector_count % update_interval == 0:
+            progress = self.read_size / self.file_size * 100 if self.file_size > 0 else 100
+            self.progress_callback(f"已处理 {self.vector_count:,} 个向量块, 进度:{progress:.1f}%...")
+    
+    def on_loop_start(self, loop_count: str, label: str = "") -> None:
+        """Loop 开始 - GASC 不展开 Loop"""
+        # 记录 loop 信息，用于后续处理
+        self._current_loop_count = loop_count
+        self._current_loop_label = label
+        self._loop_vectors: List[Tuple[str, List[Tuple[str, str]]]] = []
+        pass
+    
+    def on_loop_vector(self, vec_data_list: List[Tuple[str, str]], 
+                       index: int, total: int, vec_label: str = "") -> None:
+        """Loop 内的向量 - GASC 不展开，只输出一次"""
+        # 收集 Loop 内的所有向量
+        self._loop_vectors.append((vec_label, vec_data_list))
+    
+    def on_loop_end(self, loop_count: str) -> None:
+        """Loop 结束"""
+        if len(self._loop_vectors) == 0:
+            return
+
+        if len(self._loop_vectors) == 1:
+            vec_label, vec_data_list = self._loop_vectors[0]
+
+            vec = self._build_vector_string(vec_data_list)
+            self.on_vector(vec_data_list, "RPT " + loop_count, "")
+        else:
+            # 输出 Vector 行
+            for i, (vec_label, vec_data_list) in enumerate(self._loop_vectors):
+                if i == 0:
+                    # 第一个 V，使用 Loop {loop_count}
+                    instr = f"LOOP {loop_count}"
+                elif i == len(self._loop_vectors) - 1:
+                    # 最后一个 V，使用 LEND
+                    instr = f"LEND"
+                else:
+                    # 中间的 V，使用 ADV
+                    instr = ""
+                self.on_vector(vec_data_list, instr, "")
+        
+        self.wft_pending = False
+        # 清空临时数据
+        self._loop_vectors = []
+        # 清空临时数据
+        self._loop_vectors = []
+        pass
+    
+    def on_procedure_call(self, proc_name: str, proc_content: str = "") -> None:
+        """Call 指令 - 已在解析器中展开"""
+        if not proc_content:
+            # Procedure 未找到，输出 Call 指令
+            vec = "X" * self.signal_count
+            self.on_vector(vec, f"Call {proc_name}", "")
+    
+    def on_micro_instruction(self, instr: str, param: str = "") -> None:
+        """其他微指令（Stop, Goto 等）"""
+        vec = "X" * self.signal_count
+        formatted_instr = f"{instr} {param}".strip() if param else instr
+        self._write_vector_line(vec, formatted_instr, self.current_wft, "")
+        self.current_wft = ""
+    
+    def on_parse_complete(self, vector_count: int) -> None:
+        """解析完成"""
+        if self.progress_callback:
+            self.progress_callback(f"已处理 {vector_count:,} 个向量块，进度:100%...")
+    
+    def on_parse_error(self, error_msg: str, statement: str = "") -> None:
+        """解析错误"""
+        if self.debug:
+            if statement:
+                print(f"解析错误: {error_msg}\n语句: {statement[:100]}...")
+            else:
+                print(f"解析错误: {error_msg}")
+    
+    # ========================== GASC 格式化方法 ==========================
+    
+    def _build_vector_string(self, vec_data_list: List[Tuple[str, str]]) -> str:
+        """构建向量字符串
+        
+        Args:
+            vec_data_list: [(signal_or_group, wfc_string), ...] 列表
+            
+        Returns:
+            向量字符串
+        """
+        vec_parts: List[str] = []
+        
+        for pat_key, wfc_str in vec_data_list:
+            # 记录第一个 V 的 header
+            if self.need_append_header:
+                self.pat_header.append(pat_key)
+            vec_parts.append(wfc_str)
+        
+        self.need_append_header = False
+        vec = "".join(vec_parts)
+        
+        # 如果向量长度小于信号数，补充 X
+        if len(vec) < self.signal_count:
+            vec += "X" * (self.signal_count - len(vec))
+        
+        # 转换向量字符（子类可覆盖）
+        vec = self.transform_vec_char(vec)
+        
+        return vec
+    
+    def _write_vector_line(self, vec: str, instr: str, wft: str, label: str) -> None:
+        """写入向量行到输出文件
+        
+        Args:
+            vec: 向量数据
+            instr: 微指令
+            wft: 波形表名称
+            label: 标签
+        """
         line = f"       *{vec}*"
         if instr:
             line += f"#{instr}"
         if wft:
             line += f";{wft}"
-        if label_value:
-            line += f"{label_value.strip(":").strip("\"")}"
+        if label:
+            line += f"{label.strip(':').strip('\"')}"
         self.output_file.write(line + "\n")
-
-    def emit_streaming(self, vec: str, micro_tokens: List[str], current_wft: str, wft_pending: bool, label_value: str) -> None:
-        """输出单个模式行（流式处理）"""
-        wft = current_wft if wft_pending else ""
-        if wft_pending:
-            self.wft_pending = False
-        instr = " ".join(micro_tokens)
-        if instr == "V":
-            instr = ""
-        if len(micro_tokens) == 2 and micro_tokens[0] == "Loop":
-            # 如果 micro_tokens[1] 是数字并且大于0，则根据 micro_tokens[1]循环
-            count = micro_tokens[1]
-            if count.isdigit() and int(count) > 0:
-                self.progress_callback(f"解析Loop, 需展开 {count}")
-                for i in range(int(count)):
-                    if self._stop_requested:
-                        break
-                    self.write_pattern_line_streaming(vec, "", wft, label_value)
-                    if i % 5000 == 0:
-                        self.progress_callback(f"Loop展开 {i} / {count} 个向量")
-                self.progress_callback(f"Loop展开 {count} 个向量")
-                self.vector_count += 1
-        else:
-            self.write_pattern_line_streaming(vec, instr, wft, label_value)
-            # Update progress counter
-            self.vector_count += 1
-            # 优化进度更新频率：前10000个每1000更新，之后每5000更新
-            update_interval = 1000 if self.vector_count <= 10000 else 5000
-            if self.progress_callback and self.vector_count % update_interval == 0:
-                progress = self.read_size / self.file_size * 100
-                self.progress_callback(f"已处理 {self.vector_count:,} 个向量块, 进度:{progress:.1f}%...")
-
-    # get Tree under b_pattern__pattern_statements_
-    def process_streaming(self, node: Tree, micro_tokens: List[str], signal_count: int) -> None:
-        """递归处理模式语句节点（流式输出）"""
-        # if node is Token and node.type is LABEL, record node.value to next pattern_statement
-        if isinstance(node, Token) and node.type == "LABEL":
-            self.label_value = node.value
-            return
-        if not isinstance(node, Tree):
-            return
-        data = node.data
-        if data.endswith("pattern_statement"):
-            for child in node.children:
-                self.process_streaming(child, micro_tokens, signal_count)
-            return
-        # skip annotation, open_pattern_block, close_pattern_block
-        if (data.endswith("annotation")
-         or data.endswith("open_pattern_block")
-         or data.endswith("close_pattern_block")):
-            return
-        # get waveform table name from w_stmt
-        if data.endswith("w_stmt"):
-            tokens = [t.value for t in node.children if isinstance(t, Token)]
-            if len(tokens) >= 2:
-                self.current_wft = tokens[1]
-                self.wft_pending = True
-            return
-        # get micro-instruction from pattern_statement
-        micro_tokens_temp = [c.value for c in node.children if isinstance(c, Token)][:2]
-        mirco = " ".join(micro_tokens_temp)
-        if (mirco != "V"):
-            micro_tokens = micro_tokens_temp
-        # get vec_block Tree under b_pattern__pattern_statements_
-        has_vec = any(isinstance(ch, Tree) and ch.data.endswith("vec_block") for ch in node.children)
-        # get pattern_statement Tree under b_pattern__pattern_statements_
-        nested = [ch for ch in node.children if isinstance(ch, Tree) and ch.data.endswith("pattern_statement")]
-        # get vec_data_block Tree under b_pattern__pattern_statements_
-        if has_vec:
-            vec_parts: List[str] = []
-            for vb in node.iter_subtrees():
-                if isinstance(vb, Tree) and vb.data.endswith("vec_data_block"):
-                    vec_tokens = [t.value for t in vb.scan_values(lambda c: isinstance(c, Token))]
-                    if vec_tokens:
-                        # record header when read first V list
-                        if self.need_append_header:
-                            self.pat_header.append(vec_tokens[0].strip())
-                        vec_parts.append(self.expand_vec_data(vec_tokens[-1].strip()))
-            vec = "".join(vec_parts)
-            # if vec length < signal_count, then add X to vec_parts
-            if len(vec) < signal_count:
-                vec += "X" * (signal_count - len(vec))
-            # create method to transform vec char to other char
-            vec = self.transform_vec_char(vec)
-            self.need_append_header = False
-            self.emit_streaming(vec, micro_tokens, self.current_wft, self.wft_pending, self.label_value)
-            # label_value only used for one pattern_statement
-            self.label_value = ""
-            return
-        if nested:
-            for child in nested:
-                self.process_streaming(child, micro_tokens, signal_count)
-            return
-
-        vec = "X" * signal_count
-        self.emit_streaming(vec, micro_tokens, self.current_wft, self.wft_pending)
+        
+        self.vector_count += 1
 
     # ========================== main convert method ==========================
     def convert(self) -> int:
         """主转换函数：将STIL文件转换为GASC格式（流式输出）
         
-        Args:
-            progress_callback: 进度回调函数，接收消息参数
+        Returns:
+            0: 成功, -1: 失败或停止
         """
         self.vector_count = 0
         
         if self.progress_callback:
             self.progress_callback("开始解析STIL文件...")
         
-        # Get file size for estimation
+        # 获取文件大小
         self.file_size = os.path.getsize(self.stil_file) if os.path.exists(self.stil_file) else 0
         size_mb = self.file_size / (1024 * 1024)
-        self.read_size = 0  # 已读取字节数
         
         if self.progress_callback:
-            self.progress_callback(f"文件大小: {size_mb:.1f}MB，开始语法解析...")
-
-        header_buffer = "";
-        buffer_lines = []
-        isPattern = False
-        signalCount = 0
-        if self.progress_callback:
-            self.progress_callback(f"打开文件，{self.stil_file}")
-        with open(self.stil_file, 'r', encoding='utf-8') as f:
-            #read every line in the file
-            if self.progress_callback:
-                self.progress_callback("开始提取信号/组/Timing内容...")
-            for line in f:
-                # 检查停止标志
-                if self._stop_requested:
-                    if self.progress_callback:
-                        self.progress_callback("转换已被用户停止")
-                    return -1
-                self.read_size += len(line)
-                if (line.strip().startswith('Pattern ') and '{' in line):
-                    isPattern = True;
-                    if self.debug:
-                        print(header_buffer)
-                    if self.progress_callback:
-                        self.progress_callback("开始信号/组/Timing语法解析...")
-                    parser = STILParser(self.stil_file, propagate_positions=True, debug=self.debug)
-                    tree = parser.parse_content(header_buffer)
-                    if self.debug:
-                        print(tree.pretty())
-                    if self.progress_callback:
-                        self.progress_callback("信号/组/Timing语法解析完成...")
-                        self.progress_callback("开始转换信号/组定义...")
-                    signals = self.extract_signals(tree)
-                    sig_groups = self.extract_signal_groups(tree)
-                    signalCount = len(signals)
-                    if self.progress_callback:
-                        self.progress_callback(f"找到 {signalCount} 个信号...")
-                   
-                    # 在得到signals和sig_groups后，计算并预留Header空间
-                    # 估算每个信号255个字符
-                    estimated_header_size = signalCount * 255 + 1000  # 额外1000字节用于 "HEADER { \n" 等固定内容
-                    self.header_start_position = self.output_file.tell()
-                    placeholder = " " * estimated_header_size + "\n"
-                    self.output_file.write(placeholder)
-                    self.header_placeholder_size = estimated_header_size
-
-                    # Write signals
-                    self.output_file.write("Signals {\n")
-                    self.output_file.write("     " + ",".join(signals) + ";\n\n")
-                    self.output_file.write("}\n\n")
+            self.progress_callback(f"文件大小: {size_mb:.1f}MB")
+            self.progress_callback(f"打开文件: {self.stil_file}")
+            self.progress_callback("开始提取信号/组/Timing内容...")
+        
+        # 解析文件头部（Signals/SignalGroups/Timing）
+        header_buffer = ""
+        is_pattern = False
+        
+        try:
+            with open(self.stil_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if self._stop_requested:
+                        if self.progress_callback:
+                            self.progress_callback("转换已被用户停止")
+                        return -1
                     
-                    # Write signal groups
-                    if sig_groups:
-                        self.output_file.write("SignalGroups {\n")
-                        for name, sigs in sig_groups.items():
-                            self.output_file.write("     {} = '{}';\n".format(name, " + ".join(sigs)))
-                        self.output_file.write("}\n\n")
-                        
-                    # Write timing to single file
-                    self.output_file.write("Timing {\n")
-                    timings = self.write_timing(tree)
-                    # write timings to file
-                    for key, timing in timings.items():
-                        for timing_data in timing:
-                            self.output_file.write(f"     {timing_data.wft}, {timing_data.period}, ")
-                            self.output_file.write(f"{timing_data.signal}, {timing_data.wfc}, ")
-                            self.output_file.write(f"{timing_data.t1}, {timing_data.e1}, ")
-                            self.output_file.write(f"{timing_data.t2}, {timing_data.e2}, ")
-                            self.output_file.write(f"{timing_data.t3}, {timing_data.e3}, ")
-                            self.output_file.write(f"{timing_data.t4}, {timing_data.e4};\n")
-                    self.output_file.write("}\n\n")
-
-                    if self.progress_callback:
-                        self.progress_callback("信号/组/Timing转换完成...")
-                    break
-                if not isPattern:
+                    if line.strip().startswith('Pattern ') and '{' in line:
+                        is_pattern = True
+                        break
+                    
                     header_buffer += line
-                    continue
-
+            
+            # 解析头部
+            if self.debug:
+                print("Header buffer 大小:", len(header_buffer))
+            
             if self.progress_callback:
+                self.progress_callback("开始信号/组/Timing语法解析...")
+            
+            parser = STILParser(self.stil_file, propagate_positions=True, debug=self.debug)
+            tree = parser.parse_content(header_buffer)
+            
+            if self.debug:
+                print(tree.pretty())
+            
+            if self.progress_callback:
+                self.progress_callback("信号/组/Timing语法解析完成...")
+                self.progress_callback("开始转换信号/组定义...")
+            
+            # 使用通用解析工具
+            self.signals = self.parser_utils.extract_signals(tree)
+            self.signal_groups = self.parser_utils.extract_signal_groups(tree)
+            self.signal_count = len(self.signals)
+            
+            if self.progress_callback:
+                self.progress_callback(f"找到 {self.signal_count} 个信号...")
+            
+            # 预留 Header 空间
+            estimated_header_size = self.signal_count * 255 + 1000
+            self.header_start_position = self.output_file.tell()
+            placeholder = " " * estimated_header_size + "\n"
+            self.output_file.write(placeholder)
+            self.header_placeholder_size = estimated_header_size
+            
+            # 写入 Signals
+            self.output_file.write("Signals {\n")
+            self.output_file.write("     " + ",".join(self.signals) + ";\n\n")
+            self.output_file.write("}\n\n")
+            
+            # 写入 Signal Groups
+            if self.signal_groups:
+                self.output_file.write("SignalGroups {\n")
+                for name, sigs in self.signal_groups.items():
+                    self.output_file.write("     {} = '{}';\n".format(name, " + ".join(sigs)))
+                self.output_file.write("}\n\n")
+            
+            # 写入 Timing
+            self.output_file.write("Timing {\n")
+            timings = self.parser_utils.extract_timings(tree)
+            for key, timing in timings.items():
+                for timing_data in timing:
+                    self.output_file.write(f"     {timing_data.wft}, {timing_data.period}, ")
+                    self.output_file.write(f"{timing_data.signal}, {timing_data.wfc}, ")
+                    self.output_file.write(f"{timing_data.t1}, {timing_data.e1}, ")
+                    self.output_file.write(f"{timing_data.t2}, {timing_data.e2}, ")
+                    self.output_file.write(f"{timing_data.t3}, {timing_data.e3}, ")
+                    self.output_file.write(f"{timing_data.t4}, {timing_data.e4};\n")
+            self.output_file.write("}\n\n")
+            
+            if self.progress_callback:
+                self.progress_callback("信号/组/Timing转换完成...")
                 self.progress_callback("开始转换Pattern内容...")
-            for line in f:
-                # 检查停止标志
-                if self._stop_requested:
-                    if self.progress_callback:
-                        self.progress_callback("停止解析，开始完成文件收尾工作...")
-                    break
-                self.read_size += len(line)
-                try:
-                    # if startwith // ,than continue
-                    if line.strip().startswith('//'):
-                        continue
-                    # else append line to buffer_lines
-                    buffer_lines.append(line)
-                    statement_buffer = "".join(buffer_lines).strip()
-                    # 如果包含'{'和'}'，并且数量相同就进入解析
-                    if ('{' in statement_buffer and '}' in statement_buffer
-                        and (statement_buffer.count('{') == statement_buffer.count('}'))):
-                        tree = self.multi_parser.parse(statement_buffer)
-                        self.process_streaming(tree, [], signalCount)
-                        buffer_lines.clear()
-                        if self.debug:
-                            print(f"解析成功: {statement_buffer}")
-                            self.flush()
-                        continue
-                except LarkError: 
-                    if self.debug:
-                        print(f"解析失败: {line}")
-                except Exception as e:
-                    if self.debug:
-                        print(f"其他错误: {e}")
-            if self.progress_callback:
-                self.progress_callback(f"已处理 {self.vector_count:,} 个向量块，进度:{100:.1f}%...")
+            
+            # 初始化 Pattern 解析器并解析
+            self.pattern_parser = PatternStreamParser(self.stil_file, self, self.debug)
+            self.pattern_parser.parse_patterns()
+            
+            # 关闭文件并完成收尾工作
+            self.close()
+            
+            if self._stop_requested:
+                if self.progress_callback:
+                    self.progress_callback(f"正在完成Header写入（已处理 {self.vector_count} 个向量）...")
+            
+            self.finalize_header(self.signals, self.signal_groups)
+            
+            if self._stop_requested:
+                if self.progress_callback:
+                    self.progress_callback(f"转换已停止！总共处理了 {self.vector_count} 个向量块")
+                return -1
+            else:
+                if self.progress_callback:
+                    self.progress_callback(f"转换完成！总共处理了 {self.vector_count} 个向量块")
+                return 0
         
-        # 关闭文件并完成收尾工作
-        self.close()
-        if self._stop_requested:
+        except Exception as e:
             if self.progress_callback:
-                self.progress_callback(f"正在完成Header写入（已处理 {self.vector_count} 个向量）...")
-        self.finalize_header(signals, sig_groups)
-        
-        if self._stop_requested:
-            if self.progress_callback:
-                self.progress_callback(f"转换已停止！总共处理了 {self.vector_count} 个向量块")
+                self.progress_callback(f"转换失败: {e}")
+            if self.debug:
+                import traceback
+                traceback.print_exc()
             return -1
-        else:
-            if self.progress_callback:
-                self.progress_callback(f"转换完成！总共处理了 {self.vector_count} 个向量块")
-            return 0
 
     def transform_vec_char(self, vec: str) -> str:
         """将vec中的字符转换为其他字符"""

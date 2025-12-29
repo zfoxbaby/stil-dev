@@ -1,0 +1,160 @@
+STIL 1.0;
+
+Header  {
+Title "tviibe2m_top_BI_Initialization_stil_gz" ;
+  Date     "Thu Dec  6 19:02:50 2018" ;
+  Source  "Tessent Shell  2016.4-p1-snapshot_2017.08.09_17.14" ;
+  History  {
+    Ann {*  Begin_Verify_Section  *}
+    Ann {*    format            = STIL  *}
+    Ann {*    serial_flag       = OFF  *}
+    Ann {*    test_set_type     = CHAIN_TEST  *}
+    Ann {*    pad_value         = X  *}
+    Ann {*    pattern_begin     = 0  *}
+    Ann {*    pattern_end       = 0  *}
+    Ann {*    one_setup         = ON  *}
+    Ann {*    no_initialization = OFF  *}
+    Ann {*    pattern_checksum  = 0  *}
+    Ann {*  End_Verify_Section  *}
+  }
+}
+
+//  Parameter File Keyword Settings 
+//   ALL_EXCLUDE_UNUSED     true ;
+
+Signals {
+  "p2_0_pad" In; "p23_7_pad" In; "vccd_0_pad" In; "vccd_1_pad" In; "vccd_2_pad" In; "vccd_3_pad" In; "vdda_pad" In; "vddd_0_pad" In; "vddd_1_pad" In; "vddd_2_pad" In; "vddd_3_pad" In; "vddio_0_pad" In; "vddio_1_pad" In; "vddio_10_pad" In; "vddio_11_pad" In; "vddio_12_pad" In; "vddio_13_pad" In; "vddio_14_pad" In; "vddio_15_pad" In; "vddio_16_pad" In; "vddio_17_pad" In; "vddio_18_pad" In; "vddio_19_pad" In; "vddio_2_pad" In; "vddio_3_pad" In; "vddio_4_pad" In; "vddio_5_pad" In; "vddio_6_pad" In; "vddio_7_pad" In; "vddio_8_pad" In; "vddq_pad" In; "vrefh0_pad" In; "vrefh1_pad" In; "vrefl0_pad" In; "vrefl1_pad" In; "vssa_pad" In; "vssd_0_pad" In; "vssd_2_pad" In; "vssd_3_pad" In; "vssio_0_pad" In; "vssio_1_pad" In; "vssio_10_pad" In; "vssio_11_pad" In; "vssio_12_pad" In; "vssio_13_pad" In; "vssio_14_pad" In; "vssio_15_pad" In; "vssio_16_pad" In; "vssio_17_pad" In; "vssio_18_pad" In; "vssio_19_pad" In; 
+  "vssio_2_pad" In; "vssio_3_pad" In; "vssio_4_pad" In; "vssio_5_pad" In; "vssio_6_pad" In; "vssio_7_pad" In; "vssq_pad" In; "vsub_pad" In; "xres_pad" In; 
+  
+  "p23_5_pad" InOut; "p23_6_pad" InOut; 
+}
+
+SignalGroups {
+  _pi_ = '"p2_0_pad" + "p23_7_pad" + "vccd_0_pad" + "vccd_1_pad" + "vccd_2_pad" + "vccd_3_pad" + "vdda_pad" + "vddd_0_pad" + "vddd_1_pad" + "vddd_2_pad" + "vddd_3_pad" + "vddio_0_pad" + "vddio_1_pad" + "vddio_10_pad" + "vddio_11_pad" + "vddio_12_pad" + "vddio_13_pad" + "vddio_14_pad" + "vddio_15_pad" + "vddio_16_pad" + "vddio_17_pad" + "vddio_18_pad" + "vddio_19_pad" + "vddio_2_pad" + "vddio_3_pad" + "vddio_4_pad" + "vddio_5_pad" + "vddio_6_pad" + "vddio_7_pad" + "vddio_8_pad" + "vddq_pad" + "vrefh0_pad" + "vrefh1_pad" + "vrefl0_pad" + "vrefl1_pad" + "vssa_pad" + "vssd_0_pad" + "vssd_2_pad" + "vssd_3_pad" + "vssio_0_pad" + "vssio_1_pad" + "vssio_10_pad" + "vssio_11_pad" + "vssio_12_pad" + "vssio_13_pad" + "vssio_14_pad" + 
+       "vssio_15_pad" + "vssio_16_pad" + "vssio_17_pad" + "vssio_18_pad" + "vssio_19_pad" + "vssio_2_pad" + "vssio_3_pad" + "vssio_4_pad" + "vssio_5_pad" + "vssio_6_pad" + "vssio_7_pad" + "vssq_pad" + "vsub_pad" + "xres_pad"';
+  _bidi_ = '"p23_5_pad" + "p23_6_pad"';
+  input_time_gen_0 = '"p2_0_pad" + "p23_7_pad" + "vccd_0_pad" + "vccd_1_pad" + "vccd_2_pad" + "vccd_3_pad" + "vdda_pad" + "vddd_0_pad" + "vddd_1_pad" + "vddd_2_pad" + "vddd_3_pad" + "vddio_0_pad" + "vddio_1_pad" + "vddio_10_pad" + "vddio_11_pad" + "vddio_12_pad" + "vddio_13_pad" + "vddio_14_pad" + "vddio_15_pad" + "vddio_16_pad" + "vddio_17_pad" + "vddio_18_pad" + "vddio_19_pad" + "vddio_2_pad" + "vddio_3_pad" + "vddio_4_pad" + "vddio_5_pad" + "vddio_6_pad" + "vddio_7_pad" + "vddio_8_pad" + "vddq_pad" + "vrefh0_pad" + "vrefh1_pad" + "vrefl0_pad" + "vrefl1_pad" + "vssa_pad" + "vssd_0_pad" + "vssd_2_pad" + "vssd_3_pad" + "vssio_0_pad" + "vssio_1_pad" + "vssio_10_pad" + "vssio_11_pad" + "vssio_12_pad" + "vssio_13_pad" + "vssio_14_pad" + "vssio_15_pad" + "vssio_16_pad" + "vssio_17_pad" + "vssio_18_pad" + "vssio_19_pad" + "vssio_2_pad" + "vssio_3_pad" + "vssio_4_pad" + "vssio_5_pad" + "vssio_6_pad" + 
+       "vssio_7_pad" + "vssq_pad" + "vsub_pad" + "xres_pad"';
+  bidi_time_gen_0 = '"p23_5_pad"';
+  bidi_time_gen_1 = '"p23_6_pad"';
+}
+
+Timing RETARGET_timing {
+  WaveformTable tset__test_entry_entry_  {
+    Period '100000ps' ;
+    Waveforms  {
+      input_time_gen_0  { 01XZ { '0ps' D/U/N/Z; }}
+      bidi_time_gen_0 { 01 { '0ps' D; '25000ps' D/U; '75000ps' D;}
+              Z { '0ps' Z;}
+              LHXT { '0ps' Z; '24000ps' l/h/X/t; '24001ps' X;} }
+      bidi_time_gen_1 { LHXT { '0ps' Z; '24000ps' l/h/X/t; '24001ps' X;}
+              01Z { '0ps' D/U/Z;} }
+    }
+  }
+  WaveformTable tset_gen_tp2  {
+    Period '100000ps' ;
+    Waveforms  {
+      input_time_gen_0  { 01XZ { '0ps' D/U/N/Z; }}
+      bidi_time_gen_0 { 01 { '0ps' D; '25000ps' D/U; '75000ps' D;}
+              Z { '0ps' Z;}
+              LHXT { '0ps' Z; '24000ps' l/h/X/t; '24001ps' X;} }
+      bidi_time_gen_1 { LHXT { '0ps' Z; '24000ps' l/h/X/t; '24001ps' X;}
+              01Z { '0ps' D/U/Z;} }
+    }
+  }
+}
+PatternBurst scanpats {
+  PatList { scan_test; }
+}
+
+PatternExec {
+  Timing RETARGET_timing;
+  PatternBurst scanpats;
+}
+
+
+Pattern scan_test  {
+  //Pattern:0  Vector:0  TesterCycle:0
+  Ann {* Pattern:0  Vector:0  TesterCycle:0 *}
+  W tset__test_entry_entry_;
+  //Pattern:0  Vector:1  TesterCycle:1
+  Ann {* Pattern:0  Vector:1  TesterCycle:1 *}
+  Ann {* TESSENT_PRAGMA icl_checksum 9518bc2cd42c99c280dc01ebe6e40655_1 *}
+  Ann {* Pattern_set test_setup *}
+  start: V {  _bidi_=00;
+       _pi_=001111111111111111111111111111111000000000000000000000000000;
+  }
+  V {  _bidi_=00;
+       _pi_=001111111111111111111111111111111000000000000000000000000000;
+  }
+  Loop 9 {
+	  V {  _bidi_=00;
+		   _pi_=001111111111111111111111111111111000000000000000000000000000;
+	  }
+  } // end loop
+  V {  _bidi_=10;
+       _pi_=001111111111111111111111111111111000000000000000000000000000;
+  }
+  V {  _bidi_=10;
+       _pi_=001111111111111111111111111111111000000000000000000000000000;
+  }
+  V {  _bidi_=10;
+       _pi_=001111111111111111111111111111111000000000000000000000000000;
+  }
+  Loop 10 {
+	  V {  _bidi_=00;
+		   _pi_=001111111111111111111111111111111000000000000000000000000000;
+	  }
+	  V {  _bidi_=00;
+		   _pi_=001111111111111111111111111111111000000000000000000000000000;
+	  }
+  }  // end loop
+  Loop 20 {
+	  V {  _bidi_=00;
+		   _pi_=001111111111111111111111111111111000000000000000000000000001;
+	  }
+  }  // end loop
+  Loop 30 {
+	  V {  _bidi_=00;
+		   _pi_=001111111111111111111111111111111000000000000000000000000001;
+	  }
+	  V {  _bidi_=10;
+		   _pi_=001111111111111111111111111111111000000000000000000000000001;
+	  }
+	  llabel1: V {  _bidi_=10;
+		   _pi_=001111111111111111111111111111111000000000000000000000000001;
+	  }
+	  V {  _bidi_=10;
+		   _pi_=001111111111111111111111111111111000000000000000000000000001;
+	  }
+	  V {  _bidi_=10;
+		   _pi_=001111111111111111111111111111111000000000000000000000000001;
+	  }
+	  V {  _bidi_=10;
+		   _pi_=001111111111111111111111111111111000000000000000000000000001;
+	  }
+	  V {  _bidi_=00;
+		   _pi_=001111111111111111111111111111111000000000000000000000000001;
+	  }
+  }  // end loop
+  LImlable: Loop 40 {
+	  V {  _bidi_=00;
+		   _pi_=101111111111111111111111111111111000000000000000000000000001;
+	  }
+	  V {  _bidi_=10;
+		   _pi_=101111111111111111111111111111111000000000000000000000000001;
+	  }
+  }  // end loop
+  Loop 50 {
+	  V {  _bidi_=00;
+		   _pi_=101111111111111111111111111111111000000000000000000000000001;
+	  }
+  }  // end loop
+  W tset_gen_tp2;
+  //TDI, TMS=1,1 for Contact check, Need to add Wait time for 60secs
+  Loop 60000000 {
+	  V {  _bidi_=01;
+		   _pi_=111111111111111111111111111111111000000000000000000000000001;
+	  }
+  }  // end loop
+  }

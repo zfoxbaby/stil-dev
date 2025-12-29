@@ -29,6 +29,7 @@ OPTIMIZED VERSION with streaming output and real-time progress display.
 
 from __future__ import annotations
 
+from ast import Pass
 import os
 from queue import Empty
 import sys
@@ -79,7 +80,7 @@ class STILToGascStreamATE(STILToGascStream):
             self.progress_callback(f"已处理 {self.vector_count:,} 个向量，进度:{progress:.1f}%...")
 
     def convert(self):
-
+        pass
 
        
 

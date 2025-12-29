@@ -6,20 +6,33 @@ import time
 import os
 from datetime import datetime
 from STILToGascStream import STILToGascStream
+from htol.STILToVCTStream import STILToVCTStream
+from tksheet import Sheet
 
-class ConverterGUI:
+class PATConvert:
     def __init__(self, root):
         self.root = root
-        root.geometry("700x550")
+        root.geometry("900x550")
         self.root.title("File Converter")
         
         # 用于存储当前正在运行的转换器实例
         self.current_parser = None
         self._stop_requested = False  # 停止批量转换的标志
+        
+        # VCT转换器实例（用于存储通道映射配置）
+        self.vct_converter = None
 
-        # ============ Source Type ============
-        frame_type = ttk.Frame(root)
-        frame_type.pack(fill="x", padx=10, pady=5)
+        # ============ Container for Input and Output Groups (左右布局) ============
+        container = ttk.Frame(root)
+        container.pack(fill="x", padx=10, pady=5)
+
+        # ============ Input Group (左边) ============
+        input_group = ttk.LabelFrame(container, text="Input Group")
+        input_group.pack(side="left", fill="both", expand=True, padx=(0, 5))
+
+        # Source Type
+        frame_type = ttk.Frame(input_group)
+        frame_type.pack(fill="x", padx=5, pady=2)
 
         ttk.Label(frame_type, text="Source Type:").pack(side="left")
         self.source_type = ttk.Combobox(frame_type, values=["Standard", "Specify File"], state="readonly")
@@ -27,21 +40,30 @@ class ConverterGUI:
         self.source_type.current(1)
         self.source_type.pack(side="left", padx=5, expand=True, fill="x")
 
-        # ============ Fast Mode Option ============
-        #frame_fast = ttk.Frame(root)
-        #frame_fast.pack(fill="x", padx=10, pady=5)
-        #self.fast_mode_var = tk.BooleanVar(value=True)
-        #ttk.Checkbutton(frame_fast, text="Fast Mode (Recommended for large files/No Include)", 
-        #               variable=self.fast_mode_var).pack(side="left")
-
-        # ============ Source File ============
-        frame_source = ttk.Frame(root)
-        frame_source.pack(fill="x", padx=10, pady=5)
+        # Source File
+        frame_source = ttk.Frame(input_group)
+        frame_source.pack(fill="x", padx=5, pady=2)
 
         ttk.Label(frame_source, text="Source:").pack(side="left")
         self.source_var = tk.StringVar()
-        ttk.Entry(frame_source, textvariable=self.source_var, width=50).pack(side="left", padx=5, expand=True, fill="x")
+        ttk.Entry(frame_source, textvariable=self.source_var, width=40).pack(side="left", padx=5, expand=True, fill="x")
         ttk.Button(frame_source, text="...", command=self.select_source_type).pack(side="left")
+
+        # ============ Output File Group (右边) ============
+        output_group = ttk.LabelFrame(container, text="Output File")
+        output_group.pack(side="left", fill="both", padx=(5, 0))
+
+        # Option Button
+        frame_option = ttk.Frame(output_group)
+        frame_option.pack(fill="x", padx=5, pady=2)
+        ttk.Button(frame_option, text="Option", command=self.on_option_click).pack(side="left")
+
+        # Radio Buttons: VCT and PAT
+        frame_radio = ttk.Frame(output_group)
+        frame_radio.pack(fill="x", padx=5, pady=2)
+        self.output_format_var = tk.StringVar(value="PAT")  # 默认选中PAT
+        ttk.Radiobutton(frame_radio, text="VCT", variable=self.output_format_var, value="VCT").pack(side="left", padx=5)
+        ttk.Radiobutton(frame_radio, text="PAT", variable=self.output_format_var, value="PAT").pack(side="left", padx=5)
 
         # ============ Target Folder ============
         # frame_target = ttk.Frame(root)
@@ -52,7 +74,7 @@ class ConverterGUI:
         # ttk.Entry(frame_target, textvariable=self.target_var, width=50).pack(side="left", padx=5, expand=True, fill="x")
         # ttk.Button(frame_target, text="...", command=self.select_target).pack(side="left")
 
-        # ============ Start/Stop Buttons ============
+        # ============ Start/Stop/Clear Buttons ============
         frame_start = ttk.Frame(root)
         frame_start.pack(fill="x", padx=10, pady=5)
 
@@ -61,6 +83,9 @@ class ConverterGUI:
         
         self.stop_button = ttk.Button(frame_start, text="Stop", command=self.stop_conversion, state="disabled")
         self.stop_button.pack(side="left", padx=5)
+        
+        self.clear_button = ttk.Button(frame_start, text="Clear Log", command=self.clear_log)
+        self.clear_button.pack(side="left", padx=5)
 
         # ============ Conversion Progress ============
         frame_progress = ttk.LabelFrame(root, text="Conversion Progress")
@@ -76,12 +101,16 @@ class ConverterGUI:
         
         # 更高效的文本长度管理：使用行数而不是字符数
         line_count = int(self.text_area.index('end-1c').split('.')[0])
-        if line_count > 5000:  # 超过5000行时进行截断
-            # 删除前3000行，保留后2000行
-            self.text_area.delete("1.0", "3001.0")
-            self.text_area.insert("1.0", "... [日志已自动截断，显示最近 2000 行] ...\n")
+        if line_count > 10000:  # 超过10000行时进行截断
+            # 删除前5000行，保留后5000行
+            self.text_area.delete("1.0", "5001.0")
+            self.text_area.insert("1.0", "... [日志已自动截断，显示最近 5000 行] ...\n")
         
         self.text_area.see(tk.END)
+    
+    def clear_log(self):
+        """清空日志文本框"""
+        self.text_area.delete("1.0", tk.END)
 
     def select_combo(self, event=None):
         # set source text empty when the source_type be selected
@@ -107,6 +136,80 @@ class ConverterGUI:
         if source_folder_path:
             self.source_var.set(source_folder_path)
 
+    def on_option_click(self):
+        """Option按钮点击事件 - 配置VCT通道映射"""
+        # 检查是否选择了VCT格式
+        if self.output_format_var.get() != "VCT":
+            messagebox.showinfo("提示", "Option配置仅适用于VCT格式，请先选择VCT。")
+            return
+        
+        # 检查Source是否已选择
+        source = self.source_var.get()
+        if not source:
+            messagebox.showwarning("警告", "请先选择Source文件或文件夹。")
+            return
+        
+        # 确定要解析的文件
+        if self.source_type.get() == "Specify File":
+            if not os.path.isfile(source):
+                messagebox.showerror("错误", f"文件不存在: {source}")
+                return
+            stil_file = source
+        else:  # Standard - 文件夹模式，取第一个.stil文件
+            if not os.path.isdir(source):
+                messagebox.showerror("错误", f"文件夹不存在: {source}")
+                return
+            stil_files = [f for f in os.listdir(source) if f.endswith(".stil")]
+            if not stil_files:
+                messagebox.showerror("错误", f"文件夹中没有找到.stil文件: {source}")
+                return
+            stil_file = os.path.join(source, stil_files[0])
+            self.log(f"使用第一个STIL文件进行信号解析: {stil_files[0]}")
+        
+        # 创建或复用VCT转换器
+        self.log("=" * 50)
+        
+        def progress_callback(msg):
+            self.log(msg)
+            self.root.update_idletasks()
+        
+        # 检查是否需要重新解析（源文件变化或首次使用）
+        need_reparse = False
+        if not self.vct_converter:
+            need_reparse = True
+        elif self.vct_converter.stil_file != stil_file:
+            # 源文件变化，需要重新解析
+            need_reparse = True
+            self.log("源文件已变化，重新解析...")
+        
+        if need_reparse:
+            self.log("开始解析STIL文件，提取信号信息...")
+            self.vct_converter = STILToVCTStream(stil_file, progress_callback=progress_callback)
+            used_signals = self.vct_converter.read_stil_signals(print_log=True)
+            
+            if not used_signals:
+                messagebox.showerror("错误", "未能从STIL文件中提取到信号信息。")
+                return
+        else:
+            # 复用已有的转换器，使用缓存的信号列表
+            self.log("使用缓存的信号配置...")
+            used_signals = self.vct_converter.get_used_signals()
+            existing_mapping = self.vct_converter.get_channel_mapping()
+            if existing_mapping:
+                self.log(f"已有 {len(existing_mapping)} 个信号的通道映射配置")
+        
+        self.log("=" * 50)
+        self.log("打开通道映射配置窗口...")
+        
+        # 弹出配置对话框
+        dialog = ChannelMappingDialog(self.root, used_signals, self.vct_converter, self.log)
+        self.root.wait_window(dialog.top)
+        
+        if dialog.result:
+            self.log("通道映射配置完成！")
+        else:
+            self.log("通道映射配置已取消。")
+
     # def select_target(self):
     #     folder_path = filedialog.askdirectory(title="Select Target Folder")
     #     if folder_path:
@@ -114,14 +217,23 @@ class ConverterGUI:
 
     def start_conversion(self):
         source = self.source_var.get()
-        # target = self.target_var.get()
         target = ""
-        #if not source or not os.path.isfile(source):
-        #    messagebox.showerror("Error", "Please select a valid source file (.stil / .wgl)")
-        #    return
-        # if not target or not os.path.isdir(target):
-        #     messagebox.showerror("Error", "Please select a valid target folder")
-        #     return
+        
+        # 检查Source是否已选择
+        if not source:
+            messagebox.showerror("错误", "请先选择Source文件或文件夹")
+            return
+        
+        # 如果是VCT模式，检查是否已配置通道映射
+        if self.output_format_var.get() == "VCT":
+            if not self.vct_converter or not self.vct_converter.get_channel_mapping():
+                messagebox.showerror("错误", "VCT模式需要先点击Option按钮配置通道映射！")
+                return
+            
+            # VCT模式：重新读取信号并自动重新映射
+            if not self._refresh_signal_mapping(source):
+                # 用户取消或刷新失败
+                return
 
         # 重置停止标志
         self._stop_requested = False
@@ -133,6 +245,88 @@ class ConverterGUI:
         # 启动线程防止 UI 卡死
         threading.Thread(target=self.convert, args=(source, target), daemon=True).start()
     
+    def _refresh_signal_mapping(self, source):
+        """重新读取信号信息并自动重新映射
+        
+        Args:
+            source: STIL文件或文件夹路径
+            
+        Returns:
+            bool: True表示继续转换，False表示取消或失败
+        """
+        self.log("=" * 50)
+        self.log("开始刷新信号映射...")
+        
+        # 确定要解析的文件
+        if self.source_type.get() == "Specify File":
+            stil_file = source
+        else:  # Standard - 文件夹模式，取第一个.stil文件
+            stil_files = [f for f in os.listdir(source) if f.endswith(".stil")]
+            if stil_files:
+                stil_file = os.path.join(source, stil_files[0])
+            else:
+                self.log("警告：未找到STIL文件，跳过信号刷新")
+                self.log("=" * 50)
+                return True  # 继续使用原配置
+        
+        # 保存旧的映射配置
+        old_mapping = self.vct_converter.get_channel_mapping().copy()
+        old_signal_count = len(old_mapping)
+        self.log(f"当前有 {old_signal_count} 个信号已映射")
+        
+        # 重新读取信号信息
+        def progress_callback(msg):
+            self.log(msg)
+            self.root.update_idletasks()
+        
+        # 创建新的转换器实例并刷新信号
+        temp_converter = STILToVCTStream(stil_file, progress_callback=progress_callback, debug=self.vct_converter.debug)
+        result = temp_converter.refresh_signals_and_remap(old_mapping)
+        
+        if not result['success']:
+            self.log(f"警告：{result['error']}，使用原配置")
+            self.log("=" * 50)
+            return True  # 继续使用原配置
+        
+        # 更新转换器
+        self.vct_converter = temp_converter
+        
+        # 输出映射结果
+        self.log(f"重新读取到 {len(result['new_signals'])} 个信号")
+        self.log(f"✓ 成功重新映射 {len(result['mapped_signals'])} 个信号")
+        
+        if result['removed_signals']:
+            self.log(f"⚠ 有 {len(result['removed_signals'])} 个旧信号不再存在:")
+            for sig in result['removed_signals'][:10]:  # 只显示前10个
+                self.log(f"   - {sig}")
+            if len(result['removed_signals']) > 10:
+                self.log(f"   ... 还有 {len(result['removed_signals']) - 10} 个")
+        
+        if result['unmapped_signals']:
+            self.log(f"⚠ 有 {len(result['unmapped_signals'])} 个新信号未映射:")
+            for sig in result['unmapped_signals'][:10]:  # 只显示前10个
+                self.log(f"   - {sig}")
+            if len(result['unmapped_signals']) > 10:
+                self.log(f"   ... 还有 {len(result['unmapped_signals']) - 10} 个")
+            
+            # 弹出提示
+            msg = f"检测到 {len(result['unmapped_signals'])} 个新信号未映射到通道。\n\n"
+            if len(result['unmapped_signals']) <= 5:
+                msg += "未映射的信号:\n" + "\n".join(f"  • {sig}" for sig in result['unmapped_signals'])
+            else:
+                msg += "未映射的信号:\n" + "\n".join(f"  • {sig}" for sig in result['unmapped_signals'][:5])
+                msg += f"\n  ... 还有 {len(result['unmapped_signals']) - 5} 个"
+            msg += "\n\n是否继续转换？（未映射的信号将不输出）"
+            
+            if not messagebox.askyesno("信号映射提示", msg):
+                self.log("用户取消转换")
+                self.log("=" * 50)
+                return False  # 用户取消
+        
+        self.log("信号映射刷新完成")
+        self.log("=" * 50)
+        return True  # 继续转换
+    
     def stop_conversion(self):
         """停止当前的转换"""
         self._stop_requested = True  # 设置批量转换停止标志
@@ -141,12 +335,19 @@ class ConverterGUI:
             self.log("用户点击Stop按钮，正在停止转换...")
 
     def convert_file(self, source_file, target_folder):
-        # get file name from source
+        """转换单个文件，根据选择的格式使用不同的转换器"""
         source_file_name = os.path.basename(source_file)
-        # 去掉后缀，加上.gasc
-        target_file_path = os.path.join(target_folder, os.path.splitext(source_file_name)[0] + ".gasc")
+        output_format = self.output_format_var.get()
+        
+        # 根据输出格式确定文件后缀
+        if output_format == "VCT":
+            target_file_path = os.path.join(target_folder, os.path.splitext(source_file_name)[0] + ".vct")
+        else:  # PAT
+            target_file_path = os.path.join(target_folder, os.path.splitext(source_file_name)[0] + ".gasc")
+        
         self.log(f"Source: {source_file}")
         self.log(f"Target: {target_file_path}")
+        self.log(f"Format: {output_format}")
         
         # Record start time
         start_time = datetime.now()
@@ -159,19 +360,20 @@ class ConverterGUI:
             # 强制UI更新，确保用户能看到进度
             self.root.update_idletasks()
         
-        parser = STILToGascStream(source_file, target_file_path, progress_callback, debug=False)
-        self.current_parser = parser  # 保存当前parser实例
         try:
-            result = parser.convert()
+            if output_format == "VCT":
+                # VCT格式转换
+                self.convert_file_vct(source_file, target_file_path, progress_callback)
+            else:
+                # PAT格式转换（使用原有的STILToGascStream）
+                self.convert_file_pat(source_file, target_file_path, progress_callback)
+            
             # Calculate total time
             end_time = datetime.now()
             total_time = end_time - start_time
             self.log(f"End time: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
             self.log(f"Total conversion time: {total_time.total_seconds():.2f} seconds")
-            if result == -1:
-                self.log(f"{target_file_path} conversion stopped by user!")
-            else:
-                self.log(f"{target_file_path} conversion successfully!")
+            self.log(f"{target_file_path} conversion successfully!")
         except Exception as e:
             end_time = datetime.now()
             total_time = end_time - start_time
@@ -179,6 +381,43 @@ class ConverterGUI:
             raise
         finally:
             self.current_parser = None  # 清除parser实例
+    
+    def convert_file_pat(self, source_file, target_file_path, progress_callback):
+        """PAT格式转换（使用STILToGascStream）"""
+        parser = STILToGascStream(source_file, target_file_path, progress_callback, debug=False)
+        self.current_parser = parser
+        result = parser.convert()
+        if result == -1:
+            self.log(f"{target_file_path} conversion stopped by user!")
+    
+    def convert_file_vct(self, source_file, target_file_path, progress_callback):
+        """VCT格式转换（使用STILToVCTStream）"""
+        # 检查是否已配置通道映射
+        if not self.vct_converter or not self.vct_converter.get_channel_mapping():
+            raise Exception("请先点击Option按钮配置通道映射！")
+        
+        # 批量转换时，每个文件需要重新读取信号并重新映射
+        old_mapping = self.vct_converter.get_channel_mapping().copy()
+        
+        # 创建新的转换器实例
+        new_converter = STILToVCTStream(source_file, target_file_path, progress_callback=progress_callback, debug=self.vct_converter.debug)
+        
+        # 刷新信号并自动重新映射
+        result = new_converter.refresh_signals_and_remap(old_mapping)
+        
+        if not result['success']:
+            raise Exception(f"信号读取失败: {result['error']}")
+        
+        if result['unmapped_signals']:
+            progress_callback(f"⚠ 检测到 {len(result['unmapped_signals'])} 个新信号未映射")
+        
+        self.current_parser = new_converter
+        
+        # 调用VCT转换
+        progress_callback(f"通道映射配置: {len(result['new_mapping'])} 个信号")
+        convert_result = new_converter.convert()
+        if convert_result == -1:
+            self.log(f"{target_file_path} conversion stopped by user!")
 
     def convert(self, source, target):
         self.log(f"Starting conversion...")
@@ -232,7 +471,303 @@ class ConverterGUI:
             self.start_button.config(state="normal")
             self.stop_button.config(state="disabled")
 
+class ChannelMappingDialog:
+    """通道映射配置对话框 - 使用tksheet表格"""
+    
+    def __init__(self, parent, signals, vct_converter, log_callback):
+        """初始化对话框
+        
+        Args:
+            parent: 父窗口
+            signals: 信号名列表
+            vct_converter: VCT转换器实例
+            log_callback: 日志回调函数
+        """
+        self.signals = signals
+        self.vct_converter = vct_converter
+        self.log = log_callback
+        self.result = False
+        
+        # 创建顶层窗口
+        self.top = tk.Toplevel(parent)
+        self.top.title("VCT通道映射配置")
+        self.top.geometry("600x650")
+        self.top.transient(parent)
+        self.top.grab_set()
+        
+        # 说明标签
+        ttk.Label(self.top, text="点击「通道号」列进行编辑（多个通道用逗号分隔，如: 17,25,33）").pack(pady=10)
+        
+        # 创建表格区域
+        frame_table = ttk.Frame(self.top)
+        frame_table.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        # 准备表格数据
+        existing_mapping = vct_converter.get_channel_mapping()
+        table_data = []
+        for i, signal in enumerate(signals):
+            channels_str = ""
+            if signal in existing_mapping:
+                channels_str = ",".join(str(c) for c in existing_mapping[signal])
+            table_data.append([i + 1, signal, channels_str])
+        
+        # 创建tksheet表格（不设置固定宽高，让它随窗口自动调整）
+        self.sheet = Sheet(
+            frame_table,
+            data=table_data,
+            headers=["序号", "信号名", "通道号"],
+            show_x_scrollbar=True,
+            show_y_scrollbar=True,
+            show_row_index=False,  # 隐藏左侧自带的行索引
+            header_font=("Microsoft YaHei", 10, "bold"),  # 表头加粗
+            header_align="w"  # 表头靠左对齐
+        )
+        self.sheet.pack(fill="both", expand=True)
+        
+        # 绑定窗口大小变化事件，让表格自动调整
+        self.top.bind("<Configure>", lambda e: self.sheet.refresh())
+        
+        # 启用编辑功能
+        self.sheet.enable_bindings((
+            "single_select",
+            "cell_select", 
+            "edit_cell",
+            "arrowkeys",
+            "copy",
+            "paste",
+            "column_width_resize"  # 允许用户拖动调整列宽
+        ))
+        
+        # 设置列宽
+        self.sheet.column_width(column=0, width=60)   # 序号
+        self.sheet.column_width(column=1, width=220)  # 信号名
+        self.sheet.column_width(column=2, width=250)  # 通道号
+        
+        # 设置序号列和信号名列为只读（不可编辑）
+        self.sheet.readonly_columns(columns=[0, 1], readonly=True)
+        
+        # 设置交替行颜色
+        for i in range(len(signals)):
+            if i % 2 == 0:
+                self.sheet.highlight_rows(rows=[i], bg="#f5f5f5")
+        
+        # 按钮区域
+        frame_buttons = ttk.Frame(self.top)
+        frame_buttons.pack(fill="x", padx=10, pady=10)
+        
+        # 右侧：确定和取消按钮
+        ttk.Button(frame_buttons, text="确定", command=self.on_ok).pack(side="right", padx=5)
+        # ttk.Button(frame_buttons, text="取消", command=self.on_cancel).pack(side="right", padx=5)
+        
+        # 左侧：导入和导出按钮
+        ttk.Button(frame_buttons, text="导入", command=self.on_import).pack(side="left", padx=5)
+        ttk.Button(frame_buttons, text="导出", command=self.on_export).pack(side="left", padx=5)
+    
+    def on_end_edit(self, event):
+        """编辑结束事件处理"""
+        # 编辑结束后不做特殊处理，Tab 键会触发 on_tab_pressed
+        pass
+    
+    def validate_channel_string(self, channel_str: str) -> tuple:
+        """验证通道号字符串
+        
+        Returns:
+            (is_valid, channels_list, error_message)
+        """
+        if not channel_str or not str(channel_str).strip():
+            return (True, [], None)  # 空字符串是允许的
+        
+        channel_str = str(channel_str)
+        channels = []
+        parts = channel_str.split(',')
+        
+        for part in parts:
+            part = part.strip()
+            if not part:  # 忽略空字符串（处理末尾逗号情况）
+                continue
+            try:
+                channel = int(part)
+                if 0 <= channel <= 255:
+                    channels.append(channel)
+                else:
+                    return (False, [], f"通道号 {channel} 超出范围(0-255)")
+            except ValueError:
+                return (False, [], f"'{part}' 不是有效的数字")
+        
+        return (True, channels, None)
+    
+    def on_ok(self):
+        """确定按钮点击"""
+        mapping = {}
+        errors = []
+        empty_signals = []
+        
+        # 从表格获取数据并验证
+        table_data = self.sheet.get_sheet_data()
+        
+        for row in table_data:
+            signal = row[1]       # 信号名
+            channel_str = row[2]  # 通道号
+            
+            is_valid, channels, error_msg = self.validate_channel_string(channel_str)
+            
+            if not is_valid:
+                errors.append(f"信号 '{signal}': {error_msg}")
+            elif channels:
+                mapping[signal] = channels
+            else:
+                empty_signals.append(signal)
+        
+        # 如果有格式错误，弹出提示
+        if errors:
+            error_text = "通道号格式错误，请修正：\n\n" + "\n".join(errors)
+            messagebox.showerror("格式错误", error_text)
+            return
+        
+        # 检测重复通道号
+        channel_to_signals = {}  # {通道号: [信号列表]}
+        for signal, channels in mapping.items():
+            for ch in channels:
+                if ch not in channel_to_signals:
+                    channel_to_signals[ch] = []
+                channel_to_signals[ch].append(signal)
+        
+        # 找出重复的通道号
+        duplicates = {ch: sigs for ch, sigs in channel_to_signals.items() if len(sigs) > 1}
+        if duplicates:
+            dup_lines = []
+            for ch, sigs in sorted(duplicates.items()):
+                dup_lines.append(f"  通道 {ch}: {', '.join(sigs)}")
+            error_text = "以下通道号被多个信号使用，请修正：\n\n" + "\n".join(dup_lines)
+            messagebox.showerror("通道号重复", error_text)
+            return
+        
+        # 如果没有配置任何通道，提示用户
+        if not mapping:
+            result = messagebox.askyesno(
+                "确认", 
+                "您没有为任何信号配置通道号。\n\n确定要继续吗？"
+            )
+            if not result:
+                return
+        
+        # 如果部分信号没有配置，提示用户
+        if mapping and empty_signals:
+            empty_count = len(empty_signals)
+            configured_count = len(mapping)
+            
+            result = messagebox.askyesno(
+                "确认", 
+                f"已配置 {configured_count} 个信号的通道映射。\n"
+                f"还有 {empty_count} 个信号未配置通道。\n\n"
+                f"确定要继续吗？"
+            )
+            if not result:
+                return
+        
+        # 保存映射
+        if mapping:
+            self.vct_converter.set_channel_mapping(mapping)
+            self.log(f"通道映射配置已保存：")
+            for signal, channels in mapping.items():
+                self.log(f"  {signal} -> {channels}")
+            self.log(f"共配置了 {len(mapping)} 个信号的通道映射")
+        
+        self.result = True
+        self.top.destroy()
+    
+    def on_cancel(self):
+        """取消按钮点击"""
+        self.result = False
+        self.top.destroy()
+    
+    def on_import(self):
+        """导入通道映射配置"""
+        import json
+        
+        file_path = filedialog.askopenfilename(
+            title="导入通道映射配置",
+            filetypes=[("JSON文件", "*.json"), ("所有文件", "*.*")],
+            parent=self.top
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            
+            # 更新表格数据
+            table_data = self.sheet.get_sheet_data()
+            updated_count = 0
+            
+            for i, row in enumerate(table_data):
+                signal = row[1]  # 信号名
+                if signal in config:
+                    # 找到配置，更新通道号
+                    channels = config[signal]
+                    if isinstance(channels, list):
+                        channel_str = ",".join(str(c) for c in channels)
+                    else:
+                        channel_str = str(channels)
+                    
+                    # 更新表格单元格
+                    self.sheet.set_cell_data(i, 2, channel_str)
+                    updated_count += 1
+            
+            self.sheet.refresh()
+            self.log(f"已从 {file_path} 导入配置")
+            self.log(f"更新了 {updated_count} 个信号的通道映射")
+            messagebox.showinfo("导入成功", f"已导入 {updated_count} 个信号的通道映射配置", parent=self.top)
+            
+        except json.JSONDecodeError as e:
+            messagebox.showerror("导入失败", f"JSON格式错误: {e}", parent=self.top)
+        except Exception as e:
+            messagebox.showerror("导入失败", f"导入失败: {e}", parent=self.top)
+    
+    def on_export(self):
+        """导出通道映射配置"""
+        import json
+        
+        file_path = filedialog.asksaveasfilename(
+            title="导出通道映射配置",
+            filetypes=[("JSON文件", "*.json"), ("所有文件", "*.*")],
+            defaultextension=".json",
+            parent=self.top
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            # 从表格收集数据
+            config = {}
+            table_data = self.sheet.get_sheet_data()
+            
+            for row in table_data:
+                signal = row[1]       # 信号名
+                channel_str = row[2]  # 通道号
+                
+                if channel_str:
+                    # 解析通道号
+                    is_valid, channels, _ = self.validate_channel_string(channel_str)
+                    if is_valid and channels:
+                        config[signal] = channels
+            
+            # 保存到文件
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+            
+            self.log(f"已导出配置到 {file_path}")
+            self.log(f"导出了 {len(config)} 个信号的通道映射")
+            messagebox.showinfo("导出成功", f"已导出 {len(config)} 个信号的通道映射配置", parent=self.top)
+            
+        except Exception as e:
+            messagebox.showerror("导出失败", f"导出失败: {e}", parent=self.top)
+
+
 if __name__ == "__main__":
     root = tk.Tk()
-    app = ConverterGUI(root)
+    app = PATConvert(root)
     root.mainloop()
