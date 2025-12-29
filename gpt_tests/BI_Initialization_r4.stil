@@ -44,7 +44,8 @@ Timing RETARGET_timing {
     Period '100000ps' ;
     Waveforms  {
       input_time_gen_0  { 01XZ { '0ps' D/U/N/Z; }}
-      bidi_time_gen_0 { 01 { '0ps' D; '25000ps' D/U; '75000ps' D;}
+	  //bidi_time_gen_0 { 01 { '0ps' D; '25000ps' D/U; '75000ps' U/D;}
+      bidi_time_gen_0 { 01 { '0ps' U/D; '25000ps' D/U; '75000ps' U/D;}
               Z { '0ps' Z;}
               LHXT { '0ps' Z; '24000ps' l/h/X/t; '24001ps' X;} }
       bidi_time_gen_1 { LHXT { '0ps' Z; '24000ps' l/h/X/t; '24001ps' X;}
@@ -72,21 +73,44 @@ PatternExec {
   PatternBurst scanpats;
 }
 
+Procedures {
+  proc {
+    W tset__test_entry_entry_;
+	proc_start: V {  _bidi_=00;
+       _pi_=00 \r31 1 000000000000000000000000000;
+    }
+	procloop9: Loop 9 {
+	  V {  _bidi_=00;
+		   _pi_=001111111111111111111111111111111000000000000000000000000000;
+	  }
+	} // end 
+	Loop 9 {
+	  V {  _bidi_=00;
+		   _pi_=001111111111111111111111111111111000000000000000000000000000;
+	  }
+	  V {  _bidi_=00;
+		   _pi_=001111111111111111111111111111111000000000000000000000000000;
+	  }
+	} // end loop
+  }
+}
 
 Pattern scan_test  {
-  //Pattern:0  Vector:0  TesterCycle:0
-  Ann {* Pattern:0  Vector:0  TesterCycle:0 *}
   W tset__test_entry_entry_;
   //Pattern:0  Vector:1  TesterCycle:1
   Ann {* Pattern:0  Vector:1  TesterCycle:1 *}
-  Ann {* TESSENT_PRAGMA icl_checksum 9518bc2cd42c99c280dc01ebe6e40655_1 *}
-  Ann {* Pattern_set test_setup *}
+  //支持不包含{}的单独指令，必须分号结尾
+  //Goto=JUMP
+  Goto start;
   start: V {  _bidi_=00;
        _pi_=001111111111111111111111111111111000000000000000000000000000;
   }
-  V {  _bidi_=00;
-       _pi_=001111111111111111111111111111111000000000000000000000000000;
+  //Call=CALL
+  Call proc;
+  proc_end: V {  _bidi_=00;
+       _pi_=00 \r31 1 000000000000000000000000000;
   }
+  //(Label:)Loop内部一个V块=RPT
   Loop 9 {
 	  V {  _bidi_=00;
 		   _pi_=001111111111111111111111111111111000000000000000000000000000;
@@ -95,12 +119,7 @@ Pattern scan_test  {
   V {  _bidi_=10;
        _pi_=001111111111111111111111111111111000000000000000000000000000;
   }
-  V {  _bidi_=10;
-       _pi_=001111111111111111111111111111111000000000000000000000000000;
-  }
-  V {  _bidi_=10;
-       _pi_=001111111111111111111111111111111000000000000000000000000000;
-  }
+  //Loop内部多个V块=LIm和JNIm
   Loop 10 {
 	  V {  _bidi_=00;
 		   _pi_=001111111111111111111111111111111000000000000000000000000000;
@@ -109,7 +128,7 @@ Pattern scan_test  {
 		   _pi_=001111111111111111111111111111111000000000000000000000000000;
 	  }
   }  // end loop
-  Loop 20 {
+  MatchLoop 20 {
 	  V {  _bidi_=00;
 		   _pi_=001111111111111111111111111111111000000000000000000000000001;
 	  }
@@ -127,15 +146,6 @@ Pattern scan_test  {
 	  V {  _bidi_=10;
 		   _pi_=001111111111111111111111111111111000000000000000000000000001;
 	  }
-	  V {  _bidi_=10;
-		   _pi_=001111111111111111111111111111111000000000000000000000000001;
-	  }
-	  V {  _bidi_=10;
-		   _pi_=001111111111111111111111111111111000000000000000000000000001;
-	  }
-	  V {  _bidi_=00;
-		   _pi_=001111111111111111111111111111111000000000000000000000000001;
-	  }
   }  // end loop
   LImlable: Loop 40 {
 	  V {  _bidi_=00;
@@ -145,16 +155,13 @@ Pattern scan_test  {
 		   _pi_=101111111111111111111111111111111000000000000000000000000001;
 	  }
   }  // end loop
-  Loop 50 {
-	  V {  _bidi_=00;
-		   _pi_=101111111111111111111111111111111000000000000000000000000001;
-	  }
-  }  // end loop
   W tset_gen_tp2;
   //TDI, TMS=1,1 for Contact check, Need to add Wait time for 60secs
-  Loop 60000000 {
+  Loop 60 {
 	  V {  _bidi_=01;
 		   _pi_=111111111111111111111111111111111000000000000000000000000001;
 	  }
   }  // end loop
+  //(Label:)Stop=HALT
+  stop: Stop;
   }
