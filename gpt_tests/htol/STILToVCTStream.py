@@ -20,7 +20,7 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from MicroInstructionMapper import MicroInstructionMapper
+from htol.MicroInstructionMapper import MicroInstructionMapper
 from TimingData import TimingData
 from STILParserUtils import STILParserUtils
 from htol.TimingFormatter import TimingFormatter
@@ -46,7 +46,7 @@ class STILToVCTStream(PatternEventHandler):
         self.debug = debug
         
         # 解析结果存储
-        self.signals: List[str] = []
+        self.signals: Dict[str, str] = {}  # {信号名: 信号类型}
         self.signal_groups: Dict[str, List[str]] = {}
         self.used_signals: List[str] = []
         self.pat_header: List[str] = []
@@ -167,7 +167,7 @@ class STILToVCTStream(PatternEventHandler):
                         # 使用通用解析工具
                         self.signals = self.parser_utils.extract_signals(tree)
                         self.signal_groups = self.parser_utils.extract_signal_groups(tree)
-                        self.timings = self.parser_utils.extract_timings(tree)
+                        self.timings = self.parser_utils.extract_timings(tree, self.signals)
                         
                         if self.progress_callback and print_log:
                             self.progress_callback(f"找到 {len(self.signals)} 个信号定义")

@@ -537,6 +537,7 @@ class PatternStreamParser:
                 self.handler.on_label(self.label_value)
                 self.label_value = ""
             
+            self.vector_count += 1
             # 触发微指令回调
             self.handler.on_micro_instruction(instr, param)
             return

@@ -56,28 +56,34 @@ class TimingData:
             edges.append(self.e4.upper())
         return "".join(edges)
     
-    def compute_timing_properties(self, strobe_wfcs: set = None) -> None:
+    def compute_timing_properties(self, strobe_wfcs: set = None, signal_type: str = "") -> None:
         """计算并设置 Timing 属性
         
-        根据 WFC 和边沿模式，自动设置：
+        根据信号类型、WFC 和边沿模式，自动设置：
         - is_strobe: 是否是比较沿
         - edge_format: 边沿格式 (NRZ/DNRZ/RZ/RO)
         - vector_replacement: Vector替换字符 (P/N/空)
         
         Args:
-            strobe_wfcs: STROBE类型的WFC字符集合，默认 {'L', 'H', 'l', 'h'}
+            strobe_wfcs: STROBE类型的WFC字符集合，默认 {'L', 'H', 'l', 'h'}（向后兼容）
+            signal_type: 信号类型 (In/Out/InOut/Supply/Pseudo)，优先使用此参数判断
         """
         if strobe_wfcs is None:
             strobe_wfcs = {'L', 'H', 'l', 'h'}
         
-        # 判断是否是比较沿，需要把wfc拆分成单个字符，然后到strobe_wfcs中找，
-        # 如果有一个wfc的单个字符存在就是比较沿，否则是驱动沿
-        for wfc in self.wfc:
-            if wfc in strobe_wfcs:
-                self.is_strobe = True
-                break
+        # 优先根据信号类型判断：InOut类型信号认为是STROBE
+        if signal_type:
+            self.is_strobe = (signal_type == "InOut")
         else:
-            self.is_strobe = False
+            # 向后兼容：根据WFC字符判断
+            # 判断是否是比较沿，需要把wfc拆分成单个字符，然后到strobe_wfcs中找，
+            # 如果有一个wfc的单个字符存在就是比较沿，否则是驱动沿
+            for wfc in self.wfc:
+                if wfc in strobe_wfcs:
+                    self.is_strobe = True
+                    break
+            else:
+                self.is_strobe = False
         
         # 如果不是父节点并且是比较沿，不需要计算驱动沿格式
         if self.parent is not None and self.is_strobe:

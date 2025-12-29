@@ -97,7 +97,7 @@ class STILToGascStream(PatternEventHandler):
         self.pattern_parser = None
         
         # 信号和信号组（从header解析中获取）
-        self.signals: List[str] = []
+        self.signals: Dict[str, str] = {}  # {信号名: 信号类型}
         self.signal_groups: Dict[str, List[str]] = {}
         self.signal_count = 0
     
@@ -347,7 +347,7 @@ class STILToGascStream(PatternEventHandler):
             
             # 写入 Signals
             self.output_file.write("Signals {\n")
-            self.output_file.write("     " + ",".join(self.signals) + ";\n\n")
+            self.output_file.write("     " + ",".join(self.signals.keys()) + ";\n\n")
             self.output_file.write("}\n\n")
             
             # 写入 Signal Groups
@@ -359,7 +359,7 @@ class STILToGascStream(PatternEventHandler):
             
             # 写入 Timing
             self.output_file.write("Timing {\n")
-            timings = self.parser_utils.extract_timings(tree)
+            timings = self.parser_utils.extract_timings(tree, self.signals)
             for key, timing in timings.items():
                 for timing_data in timing:
                     self.output_file.write(f"     {timing_data.wft}, {timing_data.period}, ")
@@ -423,8 +423,13 @@ class STILToGascStream(PatternEventHandler):
         return vec
 
 
-    def finalize_header(self, signals: List[str], sig_groups: dict[str, List[str]]) -> None:
-        """完善文件头部，直接在预留空间中写入Header"""
+    def finalize_header(self, signals: Dict[str, str], sig_groups: dict[str, List[str]]) -> None:
+        """完善文件头部，直接在预留空间中写入Header
+        
+        Args:
+            signals: {信号名: 信号类型} 映射
+            sig_groups: {组名: [信号列表]} 映射
+        """
         # 确定最终的模式信号列表
         final_signals = []
         for key in self.pat_header:

@@ -38,20 +38,31 @@ class STILParserUtils:
     
     # ========================== 信号提取 ==========================
     
-    def extract_signals(self, tree: Tree) -> List[str]:
-        """从Signals块提取信号名称列表
+    def extract_signals(self, tree: Tree) -> Dict[str, str]:
+        """从Signals块提取信号名称和类型
         
         Args:
             tree: 解析树
             
         Returns:
-            信号名列表
+            {信号名: 信号类型} 映射，信号类型: In/Out/InOut/Supply/Pseudo
         """
-        signals: List[str] = []
+        signals: Dict[str, str] = {}
         for node in tree.find_data("b_signals__signals_list"):
-            token = node.children[0]
-            if isinstance(token, Token):
-                signals.append(token.value.strip("\""))
+            signal_name = ""
+            signal_type = ""
+            
+            # 提取信号名和类型
+            for child in node.children:
+                if isinstance(child, Token):
+                    if child.type == "b_signals__SIGNAL_NAME":
+                        signal_name = child.value.strip("\"")
+                    elif child.type == "b_signals__SIGNAL_TYPE":
+                        signal_type = child.value
+            
+            if signal_name:
+                signals[signal_name] = signal_type
+        
         return signals
     
     def extract_signal_groups(self, tree: Tree) -> Dict[str, List[str]]:
@@ -91,15 +102,19 @@ class STILParserUtils:
     
     # ========================== Timing解析 ==========================
     
-    def extract_timings(self, tree: Tree) -> Dict[str, List[TimingData]]:
+    def extract_timings(self, tree: Tree, signal_types: Dict[str, str] = None) -> Dict[str, List[TimingData]]:
         """从Timing块提取Timing信息
         
         Args:
             tree: 解析树
+            signal_types: 信号类型映射 {信号名: 信号类型}
             
         Returns:
             {波形表名: [TimingData列表]} 映射
         """
+        if signal_types is None:
+            signal_types = {}
+        
         timings: Dict[str, List[TimingData]] = {}
         
         for node in tree.find_data("timing_block"):
@@ -135,7 +150,7 @@ class STILParserUtils:
                             self._process_single_time_offset(subchild, timing_data, time_values, edge_values)
                         if isinstance(subchild, Tree) and subchild.data == "b_timing__close_wfcs_block":
                             self._assign_timing_data(timing_data, time_values, edge_values)
-                            timing_list = self._split_timing_data(timing_data)
+                            timing_list = self._split_timing_data(timing_data, signal_types)
                             timings[wft].extend(timing_list)
                             time_values.clear()
                             edge_values.clear()
@@ -146,15 +161,19 @@ class STILParserUtils:
                             timing_data.period = period
         return timings
     
-    def _split_timing_data(self, timing_data: TimingData) -> List[TimingData]:
+    def _split_timing_data(self, timing_data: TimingData, signal_types: Dict[str, str] = None) -> List[TimingData]:
         """拆分包含多个wfc字符的TimingData
         
         Args:
             timing_data: 原始TimingData
+            signal_types: 信号类型映射 {信号名: 信号类型}
             
         Returns:
             拆分后的TimingData列表
         """
+        if signal_types is None:
+            signal_types = {}
+        
         timing_data_list: List[TimingData] = []
         
         if len(timing_data.wfc) > 1:
@@ -193,9 +212,11 @@ class STILParserUtils:
             timing_data_list.append(timing_data)
         
         # 为每个 TimingData 计算属性（is_strobe, edge_format, vector_replacement）
-        timing_data.compute_timing_properties()
+        # 根据信号类型判断是否是 STROBE
+        signal_type = signal_types.get(timing_data.signal, "")
+        timing_data.compute_timing_properties(signal_type=signal_type)
         for td in timing_data_list:
-            td.compute_timing_properties()
+            td.compute_timing_properties(signal_type=signal_type)
         
         return timing_data_list
     
@@ -251,8 +272,8 @@ def get_default_utils() -> STILParserUtils:
 
 
 # 便捷函数
-def extract_signals(tree: Tree) -> List[str]:
-    """提取信号"""
+def extract_signals(tree: Tree) -> Dict[str, str]:
+    """提取信号和类型"""
     return get_default_utils().extract_signals(tree)
 
 
@@ -261,7 +282,7 @@ def extract_signal_groups(tree: Tree) -> Dict[str, List[str]]:
     return get_default_utils().extract_signal_groups(tree)
 
 
-def extract_timings(tree: Tree) -> Dict[str, List[TimingData]]:
+def extract_timings(tree: Tree, signal_types: Dict[str, str] = None) -> Dict[str, List[TimingData]]:
     """提取Timing"""
-    return get_default_utils().extract_timings(tree)
+    return get_default_utils().extract_timings(tree, signal_types)
 
