@@ -15,110 +15,7 @@ import re
 import sys
 from typing import List, Dict, Tuple, Optional
 from lark import Lark, Tree, Token, LarkError
-
-
-class PatternEventHandler:
-    """Pattern 解析事件处理接口
-    
-    所有格式生成器（如 STILToVCTStream、STILToGascStream）都应继承此类
-    并实现相应的回调方法。
-    """
-    
-    def on_parse_start(self) -> None:
-        """解析开始时调用"""
-        pass
-    
-    def on_waveform_change(self, wft_name: str) -> None:
-        """波形表切换时调用（W 语句）
-        
-        Args:
-            wft_name: 波形表名称
-        """
-        pass
-    
-    def on_label(self, label_name: str) -> None:
-        """遇到标签时调用
-        
-        Args:
-            label_name: 标签名称（已去除引号和冒号）
-        """
-        pass
-    
-    def on_vector(self, vec_data_list: List[Tuple[str, str]], 
-                  instr: str = "", param: str = "") -> None:
-        """遇到向量数据时调用
-        
-        Args:
-            vec_data_list: [(signal_or_group, wfc_string), ...] 列表
-            instr: 微指令名称（如 "", "Call", "Stop"）
-            param: 微指令参数
-        """
-        pass
-    
-    def on_loop_start(self, loop_count: str, label: str = "") -> None:
-        """Loop 开始时调用
-        
-        Args:
-            loop_count: 循环次数
-            label: Loop 标签（如果有）
-        """
-        pass
-    
-    def on_loop_vector(self, vec_data_list: List[Tuple[str, str]], 
-                       index: int, total: int, vec_label: str = "") -> None:
-        """Loop 内的向量时调用
-        
-        Args:
-            vec_data_list: [(signal_or_group, wfc_string), ...] 列表
-            index: 当前向量索引（0-based）
-            total: Loop 内向量总数
-            vec_label: 向量标签（如果有）
-        """
-        pass
-    
-    def on_loop_end(self, loop_count: str) -> None:
-        """Loop 结束时调用
-        
-        Args:
-            loop_count: 循环次数
-        """
-        pass
-    
-    def on_procedure_call(self, proc_name: str, proc_content: str = "") -> None:
-        """Call 指令时调用
-        
-        Args:
-            proc_name: Procedure 名称
-            proc_content: Procedure 内容（如果找到）
-        """
-        pass
-    
-    def on_micro_instruction(self, instr: str, param: str = "") -> None:
-        """其他微指令时调用（Stop, Goto, IddqTestPoint 等）
-        
-        Args:
-            instr: 微指令名称
-            param: 微指令参数
-        """
-        pass
-    
-    def on_parse_complete(self, vector_count: int) -> None:
-        """解析完成时调用
-        
-        Args:
-            vector_count: 解析的向量总数
-        """
-        pass
-    
-    def on_parse_error(self, error_msg: str, statement: str = "") -> None:
-        """解析错误时调用
-        
-        Args:
-            error_msg: 错误信息
-            statement: 导致错误的语句
-        """
-        pass
-
+from STILParserUtils import PatternEventHandler
 
 class PatternStreamParser:
     """STIL Pattern 流式解析器
@@ -463,6 +360,10 @@ class PatternStreamParser:
             # 提取每个 vec_data_block 的 (pat_key, wfc) 对
             vec_data_list: List[Tuple[str, str]] = []
             
+            # 获取微指令
+            instr = micro_tokens[0] if micro_tokens else ""
+            param = micro_tokens[1] if len(micro_tokens) > 1 else ""
+
             for vb in node.iter_subtrees():
                 if isinstance(vb, Tree) and vb.data.endswith("vec_data_block"):
                     vec_tokens = [t.value for t in vb.scan_values(lambda c: isinstance(c, Token))]
@@ -471,11 +372,7 @@ class PatternStreamParser:
                         pat_key = vec_tokens[0].strip()
                         # 最后一个 token 是 WFC 数据
                         wfc_str = self._expand_vec_data(vec_tokens[-1].strip())
-                        vec_data_list.append((pat_key, wfc_str))
-            
-            # 获取微指令
-            instr = micro_tokens[0] if micro_tokens else ""
-            param = micro_tokens[1] if len(micro_tokens) > 1 else ""
+                        vec_data_list.append((pat_key, wfc_str, instr, param))
             
             # 如果有 LABEL，先触发 label 回调
             if self.label_value:
@@ -483,7 +380,7 @@ class PatternStreamParser:
                 self.label_value = ""
             
             # 触发向量回调
-            self.handler.on_vector(vec_data_list, instr, param)
+            self.handler.on_vector(vec_data_list, instr, param, self.label_value)
             self.vector_count += 1
             return
         
@@ -598,11 +495,6 @@ class PatternStreamParser:
                         try:
                             tree = self.multi_parser.parse(statement_buffer)
                             self._process_pattern_node(tree, [])
-                            # from PatternParserTransformer import PatternTransformer
-                            # from PatternParserTransformer import ParserState
-                            # state = ParserState()
-                            # pattern_transformer = PatternTransformer(self.handler, state)
-                            # pattern_transformer.transform(tree)
                         except LarkError as e:
                             # 触发错误回调
                             error_msg = f"Lark 解析失败: {str(e)}"

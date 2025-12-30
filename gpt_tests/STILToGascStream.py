@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Tuple
 from TimingData import TimingData
 from STILParserUtils import STILParserUtils
-from PatternParser import PatternEventHandler, PatternStreamParser
+from STILParserTransformer import PatternEventHandler, PatternStreamParserTransformer
 
 try:  # Try importing the package as an installed dependency first
     from Semi_ATE.STIL.parsers.STILParser import STILParser
@@ -129,13 +129,29 @@ class STILToGascStream(PatternEventHandler):
     def on_vector(self, vec_data_list: List[Tuple[str, str]], 
                   instr: str = "", param: str = "") -> None:
         """遇到向量数据"""
-        # 构建向量字符串
-        vec = self._build_vector_string(vec_data_list)
+        # 适配 Transformer 版本的 vec_data_list 格式
+        # Transformer 返回: [(signal, data, instr, param, label), ...]
         
-        # 格式化微指令
-        formatted_instr = f"{instr} {param}".strip() if param else instr
-        if formatted_instr == "V":
-            formatted_instr = ""
+        # 构建向量字符串
+        vec_parts: List[str] = []
+        
+        for pat_key, wfc_str, instr, param, label in vec_data_list:
+            # 记录第一个 V 的 header
+            if self.need_append_header:
+                self.pat_header.append(pat_key)
+            vec_parts.append(wfc_str)
+        
+        self.need_append_header = False
+        vec = "".join(vec_parts)
+        
+        # 如果向量长度小于信号数，补充 X
+        if len(vec) < self.signal_count:
+            vec += "X" * (self.signal_count - len(vec))
+        
+        # 转换向量字符（子类可覆盖）
+        vec = self.transform_vec_char(vec)
+
+        formatted_instr = vec_data_list[0][2] + " " + vec_data_list[0][3]
         
         # 格式化波形表
         wft = self.current_wft if self.wft_pending else ""
@@ -143,58 +159,13 @@ class STILToGascStream(PatternEventHandler):
             self.wft_pending = False
         
         # 写入向量行
-        self._write_vector_line(vec, formatted_instr, wft, "")
+        self._write_vector_line(vec, formatted_instr, wft, vec_data_list[0][4].strip())
         
         # 进度更新
         update_interval = 1000 if self.vector_count <= 10000 else 5000
         if self.progress_callback and self.vector_count % update_interval == 0:
             progress = self.read_size / self.file_size * 100 if self.file_size > 0 else 100
             self.progress_callback(f"已处理 {self.vector_count:,} 个向量块, 进度:{progress:.1f}%...")
-    
-    def on_loop_start(self, loop_count: str, label: str = "") -> None:
-        """Loop 开始 - GASC 不展开 Loop"""
-        # 记录 loop 信息，用于后续处理
-        self._current_loop_count = loop_count
-        self._current_loop_label = label
-        self._loop_vectors: List[Tuple[str, List[Tuple[str, str]]]] = []
-        pass
-    
-    def on_loop_vector(self, vec_data_list: List[Tuple[str, str]], 
-                       index: int, total: int, vec_label: str = "") -> None:
-        """Loop 内的向量 - GASC 不展开，只输出一次"""
-        # 收集 Loop 内的所有向量
-        self._loop_vectors.append((vec_label, vec_data_list))
-    
-    def on_loop_end(self, loop_count: str) -> None:
-        """Loop 结束"""
-        if len(self._loop_vectors) == 0:
-            return
-
-        if len(self._loop_vectors) == 1:
-            vec_label, vec_data_list = self._loop_vectors[0]
-
-            vec = self._build_vector_string(vec_data_list)
-            self.on_vector(vec_data_list, "RPT " + loop_count, "")
-        else:
-            # 输出 Vector 行
-            for i, (vec_label, vec_data_list) in enumerate(self._loop_vectors):
-                if i == 0:
-                    # 第一个 V，使用 Loop {loop_count}
-                    instr = f"LOOP {loop_count}"
-                elif i == len(self._loop_vectors) - 1:
-                    # 最后一个 V，使用 LEND
-                    instr = f"LEND"
-                else:
-                    # 中间的 V，使用 ADV
-                    instr = ""
-                self.on_vector(vec_data_list, instr, "")
-        
-        self.wft_pending = False
-        # 清空临时数据
-        self._loop_vectors = []
-        # 清空临时数据
-        self._loop_vectors = []
-        pass
     
     def on_procedure_call(self, proc_name: str, proc_content: str = "") -> None:
         """Call 指令 - 已在解析器中展开"""
@@ -212,6 +183,7 @@ class STILToGascStream(PatternEventHandler):
     
     def on_parse_complete(self, vector_count: int) -> None:
         """解析完成"""
+        self.output_file.write("}\n")
         if self.progress_callback:
             self.progress_callback(f"已处理 {vector_count:,} 个向量块，进度:100%...")
     
@@ -225,35 +197,6 @@ class STILToGascStream(PatternEventHandler):
     
     # ========================== GASC 格式化方法 ==========================
     
-    def _build_vector_string(self, vec_data_list: List[Tuple[str, str]]) -> str:
-        """构建向量字符串
-        
-        Args:
-            vec_data_list: [(signal_or_group, wfc_string), ...] 列表
-            
-        Returns:
-            向量字符串
-        """
-        vec_parts: List[str] = []
-        
-        for pat_key, wfc_str in vec_data_list:
-            # 记录第一个 V 的 header
-            if self.need_append_header:
-                self.pat_header.append(pat_key)
-            vec_parts.append(wfc_str)
-        
-        self.need_append_header = False
-        vec = "".join(vec_parts)
-        
-        # 如果向量长度小于信号数，补充 X
-        if len(vec) < self.signal_count:
-            vec += "X" * (self.signal_count - len(vec))
-        
-        # 转换向量字符（子类可覆盖）
-        vec = self.transform_vec_char(vec)
-        
-        return vec
-    
     def _write_vector_line(self, vec: str, instr: str, wft: str, label: str) -> None:
         """写入向量行到输出文件
         
@@ -264,12 +207,12 @@ class STILToGascStream(PatternEventHandler):
             label: 标签
         """
         line = f"       *{vec}*"
-        if instr:
-            line += f"#{instr}"
-        if wft:
+        if instr.strip():
+            line += f"#{instr.strip()}"
+        if wft.strip():
             line += f";{wft}"
-        if label:
-            line += f"{label.strip(':').strip('\"')}"
+        if label.strip():
+            line += f":{label.strip()}"
         self.output_file.write(line + "\n")
         
         self.vector_count += 1
@@ -374,8 +317,8 @@ class STILToGascStream(PatternEventHandler):
                 self.progress_callback("信号/组/Timing转换完成...")
                 self.progress_callback("开始转换Pattern内容...")
             
-            # 初始化 Pattern 解析器并解析
-            self.pattern_parser = PatternStreamParser(self.stil_file, self, self.debug)
+            # 初始化 Pattern 解析器并解析 - 使用 Transformer 版本
+            self.pattern_parser = PatternStreamParserTransformer(self.stil_file, self, self.debug)
             self.pattern_parser.parse_patterns()
             
             # 关闭文件并完成收尾工作
@@ -459,34 +402,6 @@ class STILToGascStream(PatternEventHandler):
         with open(self.target_file, "r+", encoding="utf-8") as f:
             f.seek(self.header_start_position)
             f.write(padded_header)
-    # def finalize_header(self, signals: List[str], sig_groups: dict[str, List[str]]) -> None:
-    #     """完善文件头部，确定最终的模式信号列表"""
-    #     # 使用第一条Vector的信号/信号组名，先从sig_groups中获取，获取不到则从signals中获取
-    #     # Determine final signals based on pattern header
-    #     final_signals = []
-    #     for key in self.pat_header:
-    #         if key in sig_groups:
-    #             final_signals.extend(sig_groups[key])
-    #         elif key in signals:
-    #             final_signals.append(key)
-    #     # We need to close current file and rewrite with proper header
-    #     if self.output_file:
-    #         temp_file = self.target_file + ".tmp"
-    #         # Write complete header to temp file
-    #         with open(temp_file, "w", encoding="utf-8") as temp_fh:
-    #             # Write proper header
-    #             temp_fh.write("HEADER { \n")
-    #             temp_fh.write("     " + ",".join(final_signals) + ";\n")
-    #             temp_fh.write("}\n\n")
-    #             # Copy pattern section from original file
-    #             self.output_file.close()
-    #             with open(self.target_file, "r", encoding="utf-8") as orig_fh:
-    #                 content = orig_fh.read()
-    #             temp_fh.write(content)
-    #             temp_fh.write("}\n")
-    #         # Replace original with temp file
-    #         import shutil
-    #         shutil.move(temp_file, self.target_file)
 
     def close(self):
         if self.output_file and not self.output_file.closed:

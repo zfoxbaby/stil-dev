@@ -22,9 +22,10 @@ if parent_dir not in sys.path:
 
 from htol.MicroInstructionMapper import MicroInstructionMapper
 from TimingData import TimingData
-from STILParserUtils import STILParserUtils
+from STILParserUtils import STILParserUtils, PatternEventHandler
 from htol.TimingFormatter import TimingFormatter
-from PatternParser import PatternEventHandler, PatternStreamParser
+from PatternParser import PatternStreamParser
+from STILParserTransformer import PatternStreamParserTransformer
 
 try:
     from Semi_ATE.STIL.parsers.STILParser import STILParser
@@ -203,7 +204,8 @@ class STILToVCTStream(PatternEventHandler):
                                 
                                 tree = temp_parser.parse(statement_buffer)
                                 self.pat_header = self._extract_first_vector_signals(tree)
-                                
+                                # self.pat_header去重复，保持顺序
+                                self.pat_header = list(set(self.pat_header))    
                                 if self.pat_header:
                                     first_v_found = True
                                     break
@@ -605,9 +607,7 @@ class STILToVCTStream(PatternEventHandler):
         Returns:
             格式化后的 Vector 行
         """
-        # 微指令区（16字符）
-        micro_instr = self.instruction_mapper.format_vct_instruction(instr, param)
-        
+               
         # 标志位区（固定值）
         mrst_mcmp = ".."       # MRST + MCMP
         gtst_tena_tmem = "..0" # GTST + TENA + TMEM
@@ -619,8 +619,11 @@ class STILToVCTStream(PatternEventHandler):
         # 初始化 256 通道数据为 "."
         channel_data = ["."] * 256
         
+        label_str = ""
         # 遍历每个 pat_header 项和对应的 WFC
-        for pat_key, wfc_str in vec_data_list:
+        for pat_key, wfc_str, instr, param, label in vec_data_list:
+            # 微指令区（16字符）
+            micro_instr = self.instruction_mapper.format_vct_instruction(instr, param)
             # 获取该 pat_key 对应的信号列表
             if pat_key in self.signal_groups:
                 signals = self.signal_groups[pat_key]
@@ -628,6 +631,7 @@ class STILToVCTStream(PatternEventHandler):
                 signals = [pat_key]
             else:
                 continue
+            label_str = label;
             # 遍历信号和对应的 WFC 字符
             for idx, signal in enumerate(signals):
                 if idx >= len(wfc_str):
@@ -646,7 +650,8 @@ class STILToVCTStream(PatternEventHandler):
                             channel_data[channel] = wfc_char
         
         channel_str = "".join(channel_data)
-        
+        if label_str:
+            self.on_label(label_str)
         # 组装行（前缀51字符）
         # 格式: "  INSTR         % MR GTE RESERVED         SYN T C  CHANNELS ; 0xADDR"
         line = f"  {micro_instr}% {mrst_mcmp} {gtst_tena_tmem} {reserved} {sync} {toen} {cs}  {channel_str} ; 0x{self.vector_address:06X}"
@@ -716,80 +721,6 @@ class STILToVCTStream(PatternEventHandler):
         # 进度更新
         if self.progress_callback and self.vector_address % 1000 == 0:
             self.progress_callback(f"已生成 {self.vector_address:,} 个向量...")
-    
-    def on_loop_start(self, loop_count: str, label: str = "") -> None:
-        """Loop 开始"""
-        # 记录 loop 信息，用于后续处理
-        self._current_loop_count = loop_count
-        self._current_loop_label = label
-        self._loop_vectors: List[Tuple[str, List[Tuple[str, str]]]] = []
-    
-    def on_loop_vector(self, vec_data_list: List[Tuple[str, str]], 
-                       index: int, total: int, vec_label: str = "") -> None:
-        """Loop 内的向量"""
-        # 收集 Loop 内的所有向量
-        self._loop_vectors.append((vec_label, vec_data_list))
-    
-    def on_loop_end(self, loop_count: str) -> None:
-        """Loop 结束 - 生成 RPT 或 LI/JNI 指令"""
-        if len(self._loop_vectors) == 0:
-            return
-        
-        rradr = self.timing_formatter.wft_to_rradr.get(self.current_wft, 0)
-        
-        # 如果只有一个 V，使用 RPT 微指令
-        if len(self._loop_vectors) == 1:
-            vec_label, vec_data_list = self._loop_vectors[0]
-            
-            # 输出 Label（优先使用 Loop 的 label，然后是 V 的 label）
-            label_to_output = self._current_loop_label if self._current_loop_label else vec_label
-            if label_to_output:
-                self.output_file.write(f"{label_to_output}:\n")
-            
-            # 使用 RPT 微指令
-            instr = "RPT"
-            param = loop_count
-            line = self._format_vector_line(instr, param, vec_data_list, rradr)
-            self.output_file.write(line + "\n")
-        else:
-            # 多个 V，使用 LI/JNI 微指令
-            # 确定 Loop 起始 Label
-            if self._current_loop_label:
-                loop_label = self._current_loop_label
-            else:
-                # 用当前 vector_address 作为自动生成的 Label
-                loop_label = f"0x{self.vector_address:06X}"
-            
-            # 输出 Loop 起始 Label
-            self.output_file.write(f"{loop_label}:\n")
-            
-            # 输出 Vector 行（m 作为局部变量，每个 Loop 块从 0 开始）
-            m = 0
-            for i, (vec_label, vec_data_list) in enumerate(self._loop_vectors):
-                # 如果 V 有自己的 label（非第一个 V），先输出 label
-                if i > 0 and vec_label:
-                    self.output_file.write(f"{vec_label}:\n")
-                
-                if i == 0:
-                    # 第一个 V，使用 LIm {loop_count}
-                    instr = f"LI{m}"
-                    param = loop_count
-                elif i == len(self._loop_vectors) - 1:
-                    # 最后一个 V，使用 JNIm {loop_label}
-                    instr = f"JNI{m}"
-                    param = loop_label
-                else:
-                    # 中间的 V，使用 ADV
-                    instr = ""
-                    param = ""
-                
-                # 生成并写入 Vector 行
-                line = self._format_vector_line(instr, param, vec_data_list, rradr)
-                self.output_file.write(line + "\n")
-        
-        self.wft_pending = False
-        # 清空临时数据
-        self._loop_vectors = []
     
     def on_procedure_call(self, proc_name: str, proc_content: str = "") -> None:
         """Call 指令 - 内容已在解析器中展开"""
@@ -864,7 +795,9 @@ class STILToVCTStream(PatternEventHandler):
             self.progress_callback("开始解析 Pattern 数据...")
         
         # 解析 Pattern（通过回调写入）
-        vector_count = self.pattern_parser.parse_patterns()
+        self.pattern_parser0 = PatternStreamParserTransformer(self.stil_file, self, self.debug)
+        vector_count = self.pattern_parser0.parse_patterns()
+        # vector_count = self.pattern_parser.parse_patterns()
         
         # 更新 vector_address（解析器维护自己的计数）
         self.vector_address = vector_count
