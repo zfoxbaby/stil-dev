@@ -151,16 +151,17 @@ class STILParserTransformer(Transformer):
     def open_loop_block(self, children: List) -> Dict[str, Any]:
         """处理 Loop 开始块"""
         self.state.loop_deep += 1;
+        self.state.supplment_loop_instr[self.state.loop_deep] = self.state.curr_param
         return {
             "is_loop_end": False
         }
 
     def close_loop_block(self, children: List) -> Dict[str, Any]:
         """处理 Loop 结束块"""
+        loop_instr_param = self.state.supplment_loop_instr.pop(self.state.loop_deep)
         self.state.loop_deep -= 1
         # 移除最后一个 vec_data_list
         vec_data_list = self.state.vec_data_list.pop()
-        
         # 从self.state.vec_data_list中找到 LI{m} 对应的vec_data_list
         loop_label = ""
         for vec_data in self.state.vec_data_list:
@@ -178,16 +179,64 @@ class STILParserTransformer(Transformer):
         # 生成新的元素：
         # - 如果只有一个 V 且是 LI，改成 RPT
         # - 否则最后一个改成 JNI{m}，跳转到 loop_label
+        needRepair = False
+        supplment_LI_vector_datas = []
+        last_LI_index = -1
+
         new_list = []
         for vec_data in vec_data_list:
             if "LI" in vec_data[2]:
-                # LI -> RPT（如果只有一个 V）或保持 LI（多个 V）
+                # 上一个如果是LI，说明这个LOOP只有一个V块, LI -> RPT
                 new_list.append((vec_data[0], vec_data[1], "RPT", vec_data[3], vec_data[4], vec_data[5]))
+            elif "JNI" in vec_data[2]:
+                # 如果最后一个是JNI说明内部嵌套循环，并且当前层的循环没有最后一个V块， 生成一个空的V块，wfc都用.代替
+                # 如果此时loop_label也没找到，说明上一层LOOP没有匹配到起始块，就在self.state.vec_data_list中从后往前找到第一个LI{m}的位置
+                if not loop_label:
+                    self.state.supplment_loop_label -= 1
+                    loop_label = self.state.supplment_loop_label
+                    for i, vec_datas in enumerate(self.state.vec_data_list): 
+                        if "LI" in vec_datas[0][2]:
+                            last_LI_index = i
+                            break
+                new_list.append((vec_data[0], "." * len(vec_data[1]),
+                    f"JNI{self.state.loop_deep}", loop_label, vec_data[4], vec_data[5]))
+                needRepair = True
             else:
+                # 如果self.state.vec_data_list是空则异常
+                # if len(self.state.vec_data_list) == 0:
+                #     raise Exception("JNI丢失LI的块，但是self.state.vec_data_list是空的")
+                # 说明有不止一个V
                 # 非 LI 的最后一个改成 JNI，param 改为 loop_label
+                # 要匹配LIm如果匹配不到就在最顶层插入一个空块作为LI{m}
+                # for i, vec_datas in enumerate(self.state.vec_data_list): 
+                #     for vec_data in vec_datas:
+                #         if "LI" in vec_data[2]:
+                #             last_LI_index = i
+                #             break
+                # # 如果没找到last_LI_index就插入一个
+                # if last_LI_index == -1:
+                #     for vec_data in vec_data_list:
+                #         supplment_LI_vector_datas.append((vec_data[0], "." * len(vec_data[1]),
+                #             f"LI{self.state.loop_deep}", loop_instr_param, loop_label, vec_data[5]))
+                #     self.state.vec_data_list.insert(0, supplment_LI_vector_datas)
+                #     self.state.supplment_loop_label -= 1
                 new_list.append((vec_data[0], vec_data[1],
                     f"JNI{self.state.loop_deep}", loop_label, vec_data[4], vec_data[5]))
+        
+        # 因为当前层没有最后一个V块，所以刚才移出来的要放回去
+        if needRepair:
+            self.state.vec_data_list.append(vec_data_list)
+
+        # 然后在它之前插入一个LI{m-1},并自动生成一个Label放在LI{m-1}之前，并作为当前JNI{m}的label，作为loop_label
+        if last_LI_index != -1:
+            for vec_data in vec_data_list:
+                supplment_LI_vector_datas.append((vec_data[0], "." * len(vec_data[1]),
+                    f"LI{self.state.loop_deep}", loop_instr_param, loop_label, vec_data[5]))
+            # 把supplment_LI_vector_datas放到self.state.vec_data_list的last_LI_index前面
+            self.state.vec_data_list.insert(last_LI_index, supplment_LI_vector_datas)
+
         self.state.vec_data_list.append(new_list)
+        
         return {
             "is_loop_end": True
         }
@@ -300,6 +349,8 @@ class ParserState:
     def __init__(self):
         self.vector_count = 0
         self.vector_address = 0  # 向量地址（用于生成自动 Label 和输出）
+        self.supplment_loop_label = 0 # 当JNI丢失LI的块的时候，用这个递减作为label
+        self.supplment_loop_instr: Dict[int, str] = {}
         self.loop_deep = 0
         self.vec_data_list = []
         self.current_wft = ""
