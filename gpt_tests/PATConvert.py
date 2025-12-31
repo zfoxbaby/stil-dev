@@ -2,12 +2,11 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext, messagebox
 import threading
-import time
 import os
 from datetime import datetime
 from STILToGascStream import STILToGascStream
 from htol.STILToVCTStream import STILToVCTStream
-from tksheet import Sheet
+from htol.ChannelMappingDialog import ChannelMappingDialog
 
 class PATConvert:
     def __init__(self, root):
@@ -61,7 +60,7 @@ class PATConvert:
         # Radio Buttons: VCT and PAT
         frame_radio = ttk.Frame(output_group)
         frame_radio.pack(fill="x", padx=5, pady=2)
-        self.output_format_var = tk.StringVar(value="PAT")  # 默认选中PAT
+        self.output_format_var = tk.StringVar(value="VCT")  # 默认选中VCT
         ttk.Radiobutton(frame_radio, text="VCT", variable=self.output_format_var, value="VCT").pack(side="left", padx=5)
         ttk.Radiobutton(frame_radio, text="PAT", variable=self.output_format_var, value="PAT").pack(side="left", padx=5)
 
@@ -206,7 +205,7 @@ class PATConvert:
         self.root.wait_window(dialog.top)
         
         if dialog.result:
-            self.log("通道映射配置完成！")
+            self.log("通道映射配置完成！\n")
         else:
             self.log("通道映射配置已取消。")
 
@@ -381,6 +380,7 @@ class PATConvert:
             raise
         finally:
             self.current_parser = None  # 清除parser实例
+        self.log("="*100 + "\n")
     
     def convert_file_pat(self, source_file, target_file_path, progress_callback):
         """PAT格式转换（使用STILToGascStream）"""
@@ -436,7 +436,7 @@ class PATConvert:
                 stil_files = [f for f in os.listdir(source) if f.endswith(".stil")]
                 total_files = len(stil_files)
                 self.log(f"找到 {total_files} 个STIL文件")
-                target = os.path.join(os.path.dirname(source), "converted")
+                target = os.path.join(source, "converted")
                 if not os.path.exists(target):
                     os.makedirs(target)
                 for index, filename in enumerate(stil_files, 1):
@@ -470,302 +470,6 @@ class PATConvert:
             # 转换完成或停止后，恢复按钮状态
             self.start_button.config(state="normal")
             self.stop_button.config(state="disabled")
-
-class ChannelMappingDialog:
-    """通道映射配置对话框 - 使用tksheet表格"""
-    
-    def __init__(self, parent, signals, vct_converter, log_callback):
-        """初始化对话框
-        
-        Args:
-            parent: 父窗口
-            signals: 信号名列表
-            vct_converter: VCT转换器实例
-            log_callback: 日志回调函数
-        """
-        self.signals = signals
-        self.vct_converter = vct_converter
-        self.log = log_callback
-        self.result = False
-        
-        # 创建顶层窗口
-        self.top = tk.Toplevel(parent)
-        self.top.title("VCT通道映射配置")
-        self.top.geometry("600x650")
-        self.top.transient(parent)
-        self.top.grab_set()
-        
-        # 说明标签
-        ttk.Label(self.top, text="点击「通道号」列进行编辑（多个通道用逗号分隔，如: 17,25,33）").pack(pady=10)
-        
-        # 创建表格区域
-        frame_table = ttk.Frame(self.top)
-        frame_table.pack(fill="both", expand=True, padx=10, pady=5)
-        
-        # 准备表格数据
-        existing_mapping = vct_converter.get_channel_mapping()
-        table_data = []
-        for i, signal in enumerate(signals):
-            channels_str = ""
-            if signal in existing_mapping:
-                channels_str = ",".join(str(c) for c in existing_mapping[signal])
-            table_data.append([i + 1, signal, channels_str])
-        
-        # 创建tksheet表格（不设置固定宽高，让它随窗口自动调整）
-        self.sheet = Sheet(
-            frame_table,
-            data=table_data,
-            headers=["序号", "信号名", "通道号"],
-            show_x_scrollbar=True,
-            show_y_scrollbar=True,
-            show_row_index=False,  # 隐藏左侧自带的行索引
-            header_font=("Microsoft YaHei", 10, "bold"),  # 表头加粗
-            header_align="w"  # 表头靠左对齐
-        )
-        self.sheet.pack(fill="both", expand=True)
-        
-        # 绑定窗口大小变化事件，让表格自动调整
-        self.top.bind("<Configure>", lambda e: self.sheet.refresh())
-        
-        # 启用编辑功能
-        self.sheet.enable_bindings((
-            "single_select",
-            "cell_select", 
-            "edit_cell",
-            "arrowkeys",
-            "copy",
-            "paste",
-            "column_width_resize"  # 允许用户拖动调整列宽
-        ))
-        
-        # 设置列宽
-        self.sheet.column_width(column=0, width=60)   # 序号
-        self.sheet.column_width(column=1, width=220)  # 信号名
-        self.sheet.column_width(column=2, width=250)  # 通道号
-        
-        # 设置序号列和信号名列为只读（不可编辑）
-        self.sheet.readonly_columns(columns=[0, 1], readonly=True)
-        
-        # 设置交替行颜色
-        for i in range(len(signals)):
-            if i % 2 == 0:
-                self.sheet.highlight_rows(rows=[i], bg="#f5f5f5")
-        
-        # 按钮区域
-        frame_buttons = ttk.Frame(self.top)
-        frame_buttons.pack(fill="x", padx=10, pady=10)
-        
-        # 右侧：确定和取消按钮
-        ttk.Button(frame_buttons, text="确定", command=self.on_ok).pack(side="right", padx=5)
-        # ttk.Button(frame_buttons, text="取消", command=self.on_cancel).pack(side="right", padx=5)
-        
-        # 左侧：导入和导出按钮
-        ttk.Button(frame_buttons, text="导入", command=self.on_import).pack(side="left", padx=5)
-        ttk.Button(frame_buttons, text="导出", command=self.on_export).pack(side="left", padx=5)
-    
-    def on_end_edit(self, event):
-        """编辑结束事件处理"""
-        # 编辑结束后不做特殊处理，Tab 键会触发 on_tab_pressed
-        pass
-    
-    def validate_channel_string(self, channel_str: str) -> tuple:
-        """验证通道号字符串
-        
-        Returns:
-            (is_valid, channels_list, error_message)
-        """
-        if not channel_str or not str(channel_str).strip():
-            return (True, [], None)  # 空字符串是允许的
-        
-        channel_str = str(channel_str)
-        channels = []
-        parts = channel_str.split(',')
-        
-        for part in parts:
-            part = part.strip()
-            if not part:  # 忽略空字符串（处理末尾逗号情况）
-                continue
-            try:
-                channel = int(part)
-                if 0 <= channel <= 255:
-                    channels.append(channel)
-                else:
-                    return (False, [], f"通道号 {channel} 超出范围(0-255)")
-            except ValueError:
-                return (False, [], f"'{part}' 不是有效的数字")
-        
-        return (True, channels, None)
-    
-    def on_ok(self):
-        """确定按钮点击"""
-        mapping = {}
-        errors = []
-        empty_signals = []
-        
-        # 从表格获取数据并验证
-        table_data = self.sheet.get_sheet_data()
-        
-        for row in table_data:
-            signal = row[1]       # 信号名
-            channel_str = row[2]  # 通道号
-            
-            is_valid, channels, error_msg = self.validate_channel_string(channel_str)
-            
-            if not is_valid:
-                errors.append(f"信号 '{signal}': {error_msg}")
-            elif channels:
-                mapping[signal] = channels
-            else:
-                empty_signals.append(signal)
-        
-        # 如果有格式错误，弹出提示
-        if errors:
-            error_text = "通道号格式错误，请修正：\n\n" + "\n".join(errors)
-            messagebox.showerror("格式错误", error_text)
-            return
-        
-        # 检测重复通道号
-        channel_to_signals = {}  # {通道号: [信号列表]}
-        for signal, channels in mapping.items():
-            for ch in channels:
-                if ch not in channel_to_signals:
-                    channel_to_signals[ch] = []
-                channel_to_signals[ch].append(signal)
-        
-        # 找出重复的通道号
-        duplicates = {ch: sigs for ch, sigs in channel_to_signals.items() if len(sigs) > 1}
-        if duplicates:
-            dup_lines = []
-            for ch, sigs in sorted(duplicates.items()):
-                dup_lines.append(f"  通道 {ch}: {', '.join(sigs)}")
-            error_text = "以下通道号被多个信号使用，请修正：\n\n" + "\n".join(dup_lines)
-            messagebox.showerror("通道号重复", error_text)
-            return
-        
-        # 如果没有配置任何通道，提示用户
-        if not mapping:
-            result = messagebox.askyesno(
-                "确认", 
-                "您没有为任何信号配置通道号。\n\n确定要继续吗？"
-            )
-            if not result:
-                return
-        
-        # 如果部分信号没有配置，提示用户
-        if mapping and empty_signals:
-            empty_count = len(empty_signals)
-            configured_count = len(mapping)
-            
-            result = messagebox.askyesno(
-                "确认", 
-                f"已配置 {configured_count} 个信号的通道映射。\n"
-                f"还有 {empty_count} 个信号未配置通道。\n\n"
-                f"确定要继续吗？"
-            )
-            if not result:
-                return
-        
-        # 保存映射
-        if mapping:
-            self.vct_converter.set_channel_mapping(mapping)
-            self.log(f"通道映射配置已保存：")
-            for signal, channels in mapping.items():
-                self.log(f"  {signal} -> {channels}")
-            self.log(f"共配置了 {len(mapping)} 个信号的通道映射")
-        
-        self.result = True
-        self.top.destroy()
-    
-    def on_cancel(self):
-        """取消按钮点击"""
-        self.result = False
-        self.top.destroy()
-    
-    def on_import(self):
-        """导入通道映射配置"""
-        import json
-        
-        file_path = filedialog.askopenfilename(
-            title="导入通道映射配置",
-            filetypes=[("JSON文件", "*.json"), ("所有文件", "*.*")],
-            parent=self.top
-        )
-        
-        if not file_path:
-            return
-        
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-            
-            # 更新表格数据
-            table_data = self.sheet.get_sheet_data()
-            updated_count = 0
-            
-            for i, row in enumerate(table_data):
-                signal = row[1]  # 信号名
-                if signal in config:
-                    # 找到配置，更新通道号
-                    channels = config[signal]
-                    if isinstance(channels, list):
-                        channel_str = ",".join(str(c) for c in channels)
-                    else:
-                        channel_str = str(channels)
-                    
-                    # 更新表格单元格
-                    self.sheet.set_cell_data(i, 2, channel_str)
-                    updated_count += 1
-            
-            self.sheet.refresh()
-            self.log(f"已从 {file_path} 导入配置")
-            self.log(f"更新了 {updated_count} 个信号的通道映射")
-            messagebox.showinfo("导入成功", f"已导入 {updated_count} 个信号的通道映射配置", parent=self.top)
-            
-        except json.JSONDecodeError as e:
-            messagebox.showerror("导入失败", f"JSON格式错误: {e}", parent=self.top)
-        except Exception as e:
-            messagebox.showerror("导入失败", f"导入失败: {e}", parent=self.top)
-    
-    def on_export(self):
-        """导出通道映射配置"""
-        import json
-        
-        file_path = filedialog.asksaveasfilename(
-            title="导出通道映射配置",
-            filetypes=[("JSON文件", "*.json"), ("所有文件", "*.*")],
-            defaultextension=".json",
-            parent=self.top
-        )
-        
-        if not file_path:
-            return
-        
-        try:
-            # 从表格收集数据
-            config = {}
-            table_data = self.sheet.get_sheet_data()
-            
-            for row in table_data:
-                signal = row[1]       # 信号名
-                channel_str = row[2]  # 通道号
-                
-                if channel_str:
-                    # 解析通道号
-                    is_valid, channels, _ = self.validate_channel_string(channel_str)
-                    if is_valid and channels:
-                        config[signal] = channels
-            
-            # 保存到文件
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
-            
-            self.log(f"已导出配置到 {file_path}")
-            self.log(f"导出了 {len(config)} 个信号的通道映射")
-            messagebox.showinfo("导出成功", f"已导出 {len(config)} 个信号的通道映射配置", parent=self.top)
-            
-        except Exception as e:
-            messagebox.showerror("导出失败", f"导出失败: {e}", parent=self.top)
-
 
 if __name__ == "__main__":
     root = tk.Tk()

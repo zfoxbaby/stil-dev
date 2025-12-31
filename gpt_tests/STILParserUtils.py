@@ -63,21 +63,23 @@ class PatternEventHandler:
         """
         pass
     
-    def on_procedure_call(self, proc_name: str, proc_content: str = "") -> None:
+    def on_procedure_call(self, proc_name: str, proc_content: str = "", vector_address: int = 0) -> None:
         """Call 指令时调用
         
         Args:
             proc_name: Procedure 名称
             proc_content: Procedure 内容（如果找到）
+            vector_address: 向量地址
         """
         pass
     
-    def on_micro_instruction(self, instr: str, param: str = "") -> None:
+    def on_micro_instruction(self, instr: str, param: str = "", vector_address: int = 0) -> None:
         """其他微指令时调用（Stop, Goto, IddqTestPoint 等）
         
         Args:
             instr: 微指令名称
             param: 微指令参数
+            vector_address: 向量地址
         """
         pass
     

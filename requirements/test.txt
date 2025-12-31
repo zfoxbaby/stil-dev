@@ -6,3 +6,4 @@ setuptools
 twine
 tree
 lark
+openpyxl

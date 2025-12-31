@@ -167,14 +167,14 @@ class STILToGascStream(PatternEventHandler):
             progress = self.read_size / self.file_size * 100 if self.file_size > 0 else 100
             self.progress_callback(f"已处理 {self.vector_count:,} 个向量块, 进度:{progress:.1f}%...")
     
-    def on_procedure_call(self, proc_name: str, proc_content: str = "") -> None:
+    def on_procedure_call(self, proc_name: str, proc_content: str = "", vector_address: int = 0) -> None:
         """Call 指令 - 已在解析器中展开"""
         if not proc_content:
             # Procedure 未找到，输出 Call 指令
             vec = "X" * self.signal_count
             self.on_vector(vec, f"Call {proc_name}", "")
     
-    def on_micro_instruction(self, instr: str, param: str = "") -> None:
+    def on_micro_instruction(self, instr: str, param: str = "", vector_address: int = 0) -> None:
         """其他微指令（Stop, Goto 等）"""
         vec = "X" * self.signal_count
         formatted_instr = f"{instr} {param}".strip() if param else instr
