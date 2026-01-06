@@ -24,8 +24,8 @@ from htol.MicroInstructionMapper import MicroInstructionMapper
 from TimingData import TimingData
 from STILParserUtils import STILParserUtils, PatternEventHandler
 from htol.TimingFormatter import TimingFormatter
-from PatternParser import PatternStreamParser
 from STILParserTransformer import PatternStreamParserTransformer
+import Logger
 
 try:
     from Semi_ATE.STIL.parsers.STILParser import STILParser
@@ -49,15 +49,13 @@ class STILToVCTStream(PatternEventHandler):
         # 解析结果存储
         self.signals: Dict[str, str] = {}  # {信号名: 信号类型}
         self.signal_groups: Dict[str, List[str]] = {}
-        self.used_signals: List[str] = []
         self.pat_header: List[str] = []
-        
-        # 用户配置的信号到通道映射
-        self.signal_to_channels: Dict[str, List[int]] = {}
-        
         # Timing数据
         self.timings: Dict[str, List[TimingData]] = {}
         
+        # 用户配置的信号到通道映射
+        self.signal_to_channels: Dict[str, List[int]] = {}
+
         # Vector生成相关
         self.current_wft: str = ""           # 当前波形表名
         self.wft_pending: bool = False       # 波形表是否刚切换
@@ -73,9 +71,8 @@ class STILToVCTStream(PatternEventHandler):
         # Timing格式转换器
         self.timing_formatter = TimingFormatter()
         
-        # Pattern 解析器（延迟初始化）
-        self.pattern_parser: Optional[PatternStreamParser] = None
-        
+        self.pattern_parser0 = PatternStreamParserTransformer(self.stil_file, self, self.debug)
+
         # 停止标志
         self._stop_requested = False
 
@@ -84,154 +81,14 @@ class STILToVCTStream(PatternEventHandler):
         """请求停止转换"""
         self._stop_requested = True
 
-    def _extract_first_vector_signals(self, tree) -> List[str]:
-        """从第一个V块提取使用的信号/信号组名"""
-        from lark import Tree, Token
-        pat_header: List[str] = []
-        
-        for node in tree.iter_subtrees():
-            if isinstance(node, Tree) and node.data.endswith("vec_data_block"):
-                vec_tokens = [t.value for t in node.scan_values(lambda c: isinstance(c, Token))]
-                if vec_tokens:
-                    pat_header.append(vec_tokens[0].strip())
-        
-        return pat_header
-
     def read_stil_signals(self, print_log: bool = True) -> List[str]:
         """读取STIL文件，提取实际使用的信号列表"""
-        if self.progress_callback:
-            self.progress_callback("开始读取STIL文件...")
-        
-        if not os.path.exists(self.stil_file):
-            if self.progress_callback:
-                self.progress_callback(f"错误：文件不存在 - {self.stil_file}")
-            return []
-        
-        header_buffer = ""
-        buffer_lines = []
-        is_pattern = False
-        first_v_found = False
-        
-        # 初始化临时解析器（用于提取第一个 V 的信号）
-        temp_parser = None
-        try:
-            from lark import Lark
-            if getattr(sys, 'frozen', False):
-                base_path = sys._MEIPASS
-            else:
-                base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            
-            grammar_base = os.path.join(base_path, "Semi_ATE", "STIL", "parsers", "grammars")
-            pattern_statements_file = os.path.join(grammar_base, "pattern_statements.lark")
-            
-            with open(pattern_statements_file, 'r') as f:
-                pattern_grammar = f.read()
-            
-            ignore_whitespace = """
-            %import common.WS
-            %ignore WS
-            %import common.CPP_COMMENT  
-            %ignore CPP_COMMENT
-            %import common.NEWLINE
-            %ignore NEWLINE
-            """
-            multi_grammar = """
-            start: pattern_statement+
-            """ + pattern_grammar + ignore_whitespace
-            
-            temp_parser = Lark(
-                multi_grammar,
-                start="start",
-                parser="lalr",
-                import_paths=[grammar_base]
-            )
-        except Exception as e:
-            if self.debug:
-                print(f"临时解析器初始化失败: {e}")
-        
-        try:
-            with open(self.stil_file, 'r', encoding='utf-8') as f:
-                if self.progress_callback:
-                    self.progress_callback("正在解析文件头部（Signals/SignalGroups）...")
-                
-                for line in f:
-                    if self._stop_requested:
-                        return []
-                    
-                    if line.strip().startswith('Pattern ') and '{' in line:
-                        is_pattern = True
-                        
-                        parser = STILParser(self.stil_file, propagate_positions=True, debug=self.debug)
-                        tree = parser.parse_content(header_buffer)
-                        
-                        # 使用通用解析工具
-                        self.signals = self.parser_utils.extract_signals(tree)
-                        self.signal_groups = self.parser_utils.extract_signal_groups(tree)
-                        self.timings = self.parser_utils.extract_timings(tree, self.signals)
-                        
-                        if self.progress_callback and print_log:
-                            self.progress_callback(f"找到 {len(self.signals)} 个信号定义")
-                            self.progress_callback(f"找到 {len(self.signal_groups)} 个信号组")
-                            self.progress_callback(f"找到 {len(self.timings)} 个波形表定义")
-                            for wft_name, timing_list in self.timings.items():
-                                self.progress_callback(f"  波形表 [{wft_name}] 包含 {len(timing_list)} 条Timing定义:")
-                                for td in timing_list:
-                                    timing_str = f"    {td.signal}, {td.period}, {td.wfc}, {td.t1}, {td.e1}"
-                                    if td.t2:
-                                        timing_str += f", {td.t2}, {td.e2}"
-                                    if td.t3:
-                                        timing_str += f", {td.t3}, {td.e3}"
-                                    if td.t4:
-                                        timing_str += f", {td.t4}, {td.e4}"
-                                    self.progress_callback(timing_str)
-                        continue
-                    
-                    if not is_pattern:
-                        header_buffer += line
-                        continue
-                    
-                    if is_pattern and not first_v_found and temp_parser:
-                        try:
-                            if line.strip().startswith('//'):
-                                continue
-                            
-                            buffer_lines.append(line)
-                            statement_buffer = "".join(buffer_lines).strip()
-                            
-                            if ('{' in statement_buffer and '}' in statement_buffer
-                                and statement_buffer.count('{') == statement_buffer.count('}')):
-                                
-                                tree = temp_parser.parse(statement_buffer)
-                                self.pat_header = self._extract_first_vector_signals(tree)
-                                # self.pat_header去重复，保持顺序
-                                self.pat_header = list(set(self.pat_header))    
-                                if self.pat_header:
-                                    first_v_found = True
-                                    break
-                                
-                                buffer_lines.clear()
-                        except Exception as e:
-                            if self.debug:
-                                print(f"解析错误: {e}")
-            
-            self.used_signals = []
-            for key in self.pat_header:
-                if key in self.signal_groups:
-                    self.used_signals.extend(self.signal_groups[key])
-                elif key in self.signals:
-                    self.used_signals.append(key)
-            
-            if self.progress_callback and print_log:
-                self.progress_callback(f"STIL中使用了 {len(self.used_signals)} 个信号:")
-                for i, sig in enumerate(self.used_signals):
-                    self.progress_callback(f"  {i+1}. {sig}")
-            
-            return self.used_signals
-            
-        except Exception as e:
-            if self.progress_callback:
-                self.progress_callback(f"读取文件失败: {e}")
-            return []
+        used_signals = self.pattern_parser0.read_stil_signals(print_log=print_log, progress_callback=self.progress_callback)
+        self.signals = self.pattern_parser0.get_signals()
+        self.signal_groups = self.pattern_parser0.get_signal_groups()
+        self.pat_header = self.pattern_parser0.get_pat_header()
+        self.timings = self.pattern_parser0.get_timings()
+        return used_signals
 
     def set_channel_mapping(self, mapping: Dict[str, List[int]]) -> None:
         """设置信号到通道的映射关系"""
@@ -261,17 +118,9 @@ class STILToVCTStream(PatternEventHandler):
         
         return channels
 
-    def get_used_signals(self) -> List[str]:
-        """获取已解析的使用信号列表"""
-        return self.used_signals
-
     def get_channel_mapping(self) -> Dict[str, List[int]]:
         """获取当前的通道映射配置"""
         return self.signal_to_channels
-
-    def get_timings(self) -> Dict[str, List[TimingData]]:
-        """获取已解析的Timing数据"""
-        return self.timings
     
     def refresh_signals_and_remap(self, old_mapping: Dict[str, List[int]]) -> Dict:
         """重新读取信号并根据旧映射自动重新映射
@@ -376,23 +225,24 @@ class STILToVCTStream(PatternEventHandler):
         
         lines = [
             ";",
-            ";       Timing definitions:",
+            ";    Timing definitions:",
             ";"
         ]
         
         # 添加原始波形表信息
         for wft_name, timing_list in self.timings.items():
-            lines.append(f";  Timing [{wft_name}] ({len(timing_list)} entries):")
+            lines.append(f";  Timing [{wft_name}] ({len(timing_list)} entries)")
             for td in timing_list:
-                timing_str = f";    {td.signal}, {td.period}, {td.wfc}, {td.t1}, {td.e1}"
-                if td.t2:
-                    timing_str += f", {td.t2}, {td.e2}"
-                if td.t3:
-                    timing_str += f", {td.t3}, {td.e3}"
-                if td.t4:
-                    timing_str += f", {td.t4}, {td.e4}"
-                lines.append(timing_str)
-        
+                map_wfc = td.vector_replacement;
+                if map_wfc:
+                    timing_str = f";    {td.signal}, {td.period}, {td.wfc}{("="+map_wfc) if map_wfc else ''}, {td.t1}, {td.e1}"
+                    if td.t2:
+                        timing_str += f", {td.t2}, {td.e2}"
+                    if td.t3:
+                        timing_str += f", {td.t3}, {td.e3}"
+                    if td.t4:
+                        timing_str += f", {td.t4}, {td.e4}"
+                    lines.append(timing_str)
         lines.append(";")
         
         # 添加格式化的 Timing 内容
@@ -402,11 +252,11 @@ class STILToVCTStream(PatternEventHandler):
         timing_content = self.timing_formatter.format_all_timings(self.timings)
         
         if timing_content:
-            lines.append(";       Converted timing maybe not correct, Please check the timing definitions:")
-            lines.append(";       If UDU and DUD in Timing+Group/Signal  DUD/UDU -> P/N")
-            lines.append(";       If UUU and UDU and not DDD and not DUD in Timing+Group/Signal UUU/UDU -> RO")
-            lines.append(";       If DDD and DUD and not UUU and not UDU in Timing+Group/Signal DDD/DUD -> RZ")
-            lines.append(";       If DU/UD in Timing+Group/Signal  DU/UD -> DNRZ")
+            lines.append(";    Converted timing maybe not correct, Please check the timing definitions:")
+            lines.append(";    If UDU and DUD in Timing+Group/Signal  DUD/UDU -> P/N")
+            lines.append(";    If UUU and UDU and not DDD and not DUD in Timing+Group/Signal UUU/UDU -> RO")
+            lines.append(";    If DDD and DUD and not UUU and not UDU in Timing+Group/Signal DDD/DUD -> RZ")
+            lines.append(";    If DU/UD in Timing+Group/Signal  DU/UD -> DNRZ")
             lines.append(";")
             timing_lines = timing_content.split("\n")
             prefixed_lines = [";  " + line for line in timing_lines]
@@ -445,18 +295,17 @@ class STILToVCTStream(PatternEventHandler):
             ";       driver/receiver pin to DUT signal assignments:",
             ";"
         ]
-        
+         
         for channel in range(256):
             channel_str = str(channel).rjust(4)
             
             if channel in channel_to_signal:
                 signal_name = channel_to_signal[channel]
-            else:
-                signal_name = "<none>"
-            
-            line = f";   DRVR{channel_str}: {signal_name}"
-            lines.append(line)
-        
+                line = f";   DRVR{channel_str}: {signal_name}"
+                lines.append(line)
+            # 如果最后DRVR没有信号绑定，就不输出到文件里面了
+            #else:
+                #signal_name = "<none>"
         lines.append(";   DRVR  CS: '. .'")
         lines.append(";")
         
@@ -664,7 +513,7 @@ class STILToVCTStream(PatternEventHandler):
             label_str = f"0x{vector_address:06X}"
         # 输出 Label
         if label_str:
-            self.on_label(label_str)
+            self.output_file.write(f"{label_str}:\n")
         
         # 组装行（前缀51字符）
         # 格式: "  INSTR         % MR GTE RESERVED         SYN T C  CHANNELS ; 0xADDR"
@@ -712,6 +561,10 @@ class STILToVCTStream(PatternEventHandler):
         """解析开始"""
         pass
     
+    def on_header(self, header: str) -> None:
+        """头信息"""
+        # self.output_file.write(f";  {header}\n")
+
     def on_waveform_change(self, wft_name: str) -> None:
         """波形表切换"""
         self.current_wft = wft_name
@@ -719,7 +572,7 @@ class STILToVCTStream(PatternEventHandler):
     
     def on_label(self, label_name: str) -> None:
         """遇到标签"""
-        self.output_file.write(f"{label_name}:\n")
+        # self.output_file.write(f"{label_name}:\n")
     
     def on_vector(self, vec_data_list: List[Tuple[str, str, str, str, str, int]], 
                   instr: str = "", param: str = "") -> None:
@@ -769,6 +622,7 @@ class STILToVCTStream(PatternEventHandler):
                 self.progress_callback(f"解析错误: {error_msg}\n语句: {statement[:100]}...")
             else:
                 self.progress_callback(f"解析错误: {error_msg}")
+        Logger.error(error_msg, statement)
     
     def generate_vct_vector_section(self, output_file) -> int:
         """生成VCT文件Vector部分（第四部分）- 流式写入
@@ -805,15 +659,11 @@ class STILToVCTStream(PatternEventHandler):
         output_file.write("VECTOR:\n")
         
         # 初始化 Pattern 解析器并开始解析
-        self.pattern_parser = PatternStreamParser(self.stil_file, self, self.debug)
-        
         if self.progress_callback:
             self.progress_callback("开始解析 Pattern 数据...")
         
         # 解析 Pattern（通过回调写入）
-        self.pattern_parser0 = PatternStreamParserTransformer(self.stil_file, self, self.debug)
         vector_count = self.pattern_parser0.parse_patterns()
-        # vector_count = self.pattern_parser.parse_patterns()
         
         # 写入结束部分
         output_file.write("#VECTOREND\n")
@@ -845,7 +695,7 @@ class STILToVCTStream(PatternEventHandler):
                 vector_count = self.generate_vct_vector_section(f)
                 
                 if self.progress_callback:
-                    self.progress_callback(f"Vector数据生成完成，共 {vector_count} 行")
+                    self.progress_callback(f"Vector数据生成完成，共 {vector_count} 个向量块")
             
             if self.progress_callback:
                 self.progress_callback(f"VCT文件生成完成: {self.target_file}")

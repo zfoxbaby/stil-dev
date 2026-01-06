@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List
+from typing import Optional, Callable
 
 @dataclass
 class TimingData:
@@ -26,7 +27,7 @@ class TimingData:
     twas: List = field(default_factory=list)  # 子TimingData列表
     
     # ========== 新增属性 ==========
-    is_strobe: bool = False       # 是否是比较沿（STROBE），否则是驱动沿（CLOCK）
+    is_strobe: int = -1       # 是否是比较沿（STROBE=0），否则是驱动沿（CLOCK=1）
     edge_format: str = ""         # 边沿格式: NRZ/DNRZ/RZ/RO
     vector_replacement: str = ""  # Vector生成时的替换字符: P(DUD)/N(UDU)/空(不替换)
     
@@ -56,7 +57,8 @@ class TimingData:
             edges.append(self.e4.upper())
         return "".join(edges)
     
-    def compute_timing_properties(self, strobe_wfcs: set = None, signal_type: str = "") -> None:
+    def compute_timing_properties(self, strobe_wfcs: set = None, signal_type: str = "", 
+        progress_callback: Optional[Callable[[str], None]] = None) -> None:
         """计算并设置 Timing 属性
         
         根据信号类型、WFC 和边沿模式，自动设置：
@@ -68,29 +70,34 @@ class TimingData:
             strobe_wfcs: STROBE类型的WFC字符集合，默认 {'L', 'H', 'l', 'h'}（向后兼容）
             signal_type: 信号类型 (In/Out/InOut/Supply/Pseudo)，优先使用此参数判断
         """
+        if self.parent is not None:
+            return
         if strobe_wfcs is None:
             strobe_wfcs = {'L', 'H', 'l', 'h'}
         
         # 优先根据信号类型判断：InOut类型信号认为是STROBE
         if signal_type:
-            self.is_strobe = (signal_type == "InOut")
+            if signal_type == "InOut" or signal_type == "Out":
+                self.is_strobe = 0
+            elif signal_type == "In":
+                self.is_strobe = 1
+            else:
+                self.is_strobe = -1
         else:
             # 向后兼容：根据WFC字符判断
             # 判断是否是比较沿，需要把wfc拆分成单个字符，然后到strobe_wfcs中找，
             # 如果有一个wfc的单个字符存在就是比较沿，否则是驱动沿
             for wfc in self.wfc:
                 if wfc in strobe_wfcs:
-                    self.is_strobe = True
+                    self.is_strobe = 0
                     break
             else:
-                self.is_strobe = False
+                self.is_strobe = 1
         
-        # 如果不是父节点并且是比较沿，不需要计算驱动沿格式
-        if self.parent is not None and self.is_strobe:
-            self.edge_format = ""
-            self.vector_replacement = ""
+        if (self.is_strobe == -1 and self.parent is None):
+            progress_callback(f"Warning: {self.signal}:信号类型是{signal_type}，而不是InOut/Out/In，{self.wfc}无法正确计算边沿格式")
             return
-        
+
         # 计算边沿格式
         edge_count = self.get_edge_count()
         pattern = self.get_edge_pattern()

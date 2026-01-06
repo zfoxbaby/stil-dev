@@ -14,7 +14,7 @@ class MicroInstructionMapper:
     DEFAULT_MAPPING = {
         "Stop": "HALT",
         "Goto": "JUMP",
-        "Loop": "LIm",  # 如果Loop里面只有一个V那么就替换成RPT
+        "Loop": "LI",  # 如果Loop里面只有一个V那么就替换成RPT
         "Call": "CALL",
         "Return": "RET",
         "IddqTestPoint": "IDDQ",

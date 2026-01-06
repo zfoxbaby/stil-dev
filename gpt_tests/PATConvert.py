@@ -7,6 +7,7 @@ from datetime import datetime
 from STILToGascStream import STILToGascStream
 from htol.STILToVCTStream import STILToVCTStream
 from htol.ChannelMappingDialog import ChannelMappingDialog
+import Logger
 
 class PATConvert:
     def __init__(self, root):
@@ -173,30 +174,29 @@ class PATConvert:
             self.root.update_idletasks()
         
         # 检查是否需要重新解析（源文件变化或首次使用）
-        need_reparse = False
-        if not self.vct_converter:
-            need_reparse = True
-        elif self.vct_converter.stil_file != stil_file:
-            # 源文件变化，需要重新解析
-            need_reparse = True
-            self.log("源文件已变化，重新解析...")
+        old_mapping = None
+        if self.vct_converter != None:
+            old_mapping = self.vct_converter.get_channel_mapping().copy()
+        self.log("开始解析STIL文件，提取信号信息...")
+        self.vct_converter = STILToVCTStream(stil_file, progress_callback=progress_callback)
         
-        if need_reparse:
-            self.log("开始解析STIL文件，提取信号信息...")
-            self.vct_converter = STILToVCTStream(stil_file, progress_callback=progress_callback)
-            used_signals = self.vct_converter.read_stil_signals(print_log=True)
-            
-            if not used_signals:
-                messagebox.showerror("错误", "未能从STIL文件中提取到信号信息。")
+
+        # 启动线程防止 UI 卡死
+        used_signals = self.vct_converter.read_stil_signals(print_log=True)
+        #threading.Thread(target=self.convert, args=(source, target), daemon=True).start()
+        
+        
+        if not used_signals:
+            messagebox.showerror("错误", "未能从STIL文件中提取到信号信息。")
+            return
+
+        # VCT模式：重新读取信号并自动重新映射
+        if old_mapping != None:
+            result = self.vct_converter.refresh_signals_and_remap(old_mapping)    
+            if not result['success']:
+                messagebox.showerror("错误", f"信号刷新失败: {result['error']}")
                 return
-        else:
-            # 复用已有的转换器，使用缓存的信号列表
-            self.log("使用缓存的信号配置...")
-            used_signals = self.vct_converter.get_used_signals()
-            existing_mapping = self.vct_converter.get_channel_mapping()
-            if existing_mapping:
-                self.log(f"已有 {len(existing_mapping)} 个信号的通道映射配置")
-        
+
         self.log("=" * 50)
         self.log("打开通道映射配置窗口...")
         
@@ -332,6 +332,9 @@ class PATConvert:
         if self.current_parser:
             self.current_parser.stop()
             self.log("用户点击Stop按钮，正在停止转换...")
+        if self.vct_converter:
+            self.vct_converter.stop()
+            self.log("用户点击Stop按钮，正在停止VCT转换...")
 
     def convert_file(self, source_file, target_folder):
         """转换单个文件，根据选择的格式使用不同的转换器"""
@@ -400,7 +403,8 @@ class PATConvert:
         old_mapping = self.vct_converter.get_channel_mapping().copy()
         
         # 创建新的转换器实例
-        new_converter = STILToVCTStream(source_file, target_file_path, progress_callback=progress_callback, debug=self.vct_converter.debug)
+        new_converter = STILToVCTStream(source_file, target_file_path,
+         progress_callback=progress_callback, debug=self.vct_converter.debug)
         
         # 刷新信号并自动重新映射
         result = new_converter.refresh_signals_and_remap(old_mapping)
@@ -472,6 +476,16 @@ class PATConvert:
             self.stop_button.config(state="disabled")
 
 if __name__ == "__main__":
+    # 初始化日志系统并安装全局异常处理器
+    Logger.get_logger(console_output=True, file_output=True)
+    Logger.install_global_exception_handler()
+    
     root = tk.Tk()
     app = PATConvert(root)
+    
+    # 设置日志的 progress_callback 为 GUI 的 log 方法
+    Logger.set_progress_callback(app.log)
+    
+    Logger.info("程序启动", notify_gui=False)
     root.mainloop()
+    Logger.info("程序退出", notify_gui=False)

@@ -26,7 +26,7 @@ Signals {
   "p2_0_pad" In; "p23_7_pad" In; "vccd_0_pad" In; "vccd_1_pad" In; "vccd_2_pad" In; "vccd_3_pad" In; "vdda_pad" In; "vddd_0_pad" In; "vddd_1_pad" In; "vddd_2_pad" In; "vddd_3_pad" In; "vddio_0_pad" In; "vddio_1_pad" In; "vddio_10_pad" In; "vddio_11_pad" In; "vddio_12_pad" In; "vddio_13_pad" In; "vddio_14_pad" In; "vddio_15_pad" In; "vddio_16_pad" In; "vddio_17_pad" In; "vddio_18_pad" In; "vddio_19_pad" In; "vddio_2_pad" In; "vddio_3_pad" In; "vddio_4_pad" In; "vddio_5_pad" In; "vddio_6_pad" In; "vddio_7_pad" In; "vddio_8_pad" In; "vddq_pad" In; "vrefh0_pad" In; "vrefh1_pad" In; "vrefl0_pad" In; "vrefl1_pad" In; "vssa_pad" In; "vssd_0_pad" In; "vssd_2_pad" In; "vssd_3_pad" In; "vssio_0_pad" In; "vssio_1_pad" In; "vssio_10_pad" In; "vssio_11_pad" In; "vssio_12_pad" In; "vssio_13_pad" In; "vssio_14_pad" In; "vssio_15_pad" In; "vssio_16_pad" In; "vssio_17_pad" In; "vssio_18_pad" In; "vssio_19_pad" In; 
   "vssio_2_pad" In; "vssio_3_pad" In; "vssio_4_pad" In; "vssio_5_pad" In; "vssio_6_pad" In; "vssio_7_pad" In; "vssq_pad" In; "vsub_pad" In; "xres_pad" In; 
   
-  "p23_5_pad" InOut; "p23_6_pad" InOut; 
+  "p23_5_pad" Out; "p23_6_pad" InOut; 
 }
 
 SignalGroups {
@@ -73,25 +73,24 @@ PatternExec {
   PatternBurst scanpats;
 }
 
+MacroDefs {
+   macro_z {
+	macro_z_start: V {  _bidi_=11;
+       _pi_=00 \r31 1 T00000000000000000000000000;
+    }
+  }
+}
+
 Procedures {
   proc {
-    W tset__test_entry_entry_;
+    // call指令切换Timing
+    W tset_gen_tp2;
 	proc_start: V {  _bidi_=00;
        _pi_=00 \r31 1 000000000000000000000000000;
     }
-	procloop9: Loop 99 {
-	  V {  _bidi_=00;
-		   _pi_=001111111111111111111111111111111000000000000000000000000000;
-	  }
-	} // end 
-	Loop 9 {
-	  V {  _bidi_=00;
-		   _pi_=001111111111111111111111111111111000000000000000000000000000;
-	  }
-	  V {  _bidi_=00;
-		   _pi_=001111111111111111111111111111111000000000000000000000000000;
-	  }
-	} // end loop
+	V {  _bidi_=00;
+       _pi_=00 \r31 1 000000000000000000000000000;
+    }
   }
 }
 
@@ -112,15 +111,45 @@ Pattern scan_test  {
   }
   //Call=CALL 子Pattern
   Call proc;
-  proc_end: V {  _bidi_=00;
+  // call指令结束后要恢复Timing
+  proc_end: V {  _bidi_=01;
        _pi_=00 \r31 1 000000000000000000000000000;
   }
+  Macro macro_z;
+  macro_z_end: V {  _bidi_=11;
+       _pi_=00 \r31 1 000000000000000000000000000;
+  }
+  // MatchLoop匹配内部单个Vector行（等于IMATCH），如果该行是pass就退出循环，Infinite=无限循环
+  MatchLoop 2000 {
+	  V {  _bidi_=00;
+		   _pi_=001111111111111111111111111111111000000000000000000000000001;
+	  }
+  }
+  // MatchLoop匹配内部所有Vector行直到所有都Pass才跳出循环（等于MBGN）
+  MatchLoop 11 {
+	  V {  _bidi_=00;
+		   _pi_=001111111111111111111111111111111000000000000000000000000001;
+	  }
+	  Loop 10 {
+		  V {  _bidi_=00;
+			   _pi_=001111111111111111111111111111111000000000000000000000000000;
+		  }
+	  }
+	  // BreakPoint; // 错误，因为没有最后一个V块填写Match结束指令
+	  V {  _bidi_=00;
+		   _pi_=001111111111111111111111111111111000000000000000000000000001;
+	  }
+	  BreakPoint; // 提前结束，后面的V块就变成普通块，没有到末尾自动结束
+	  V {  _bidi_=00;
+		   _pi_=001111111111111111111111111111111000000000000000000000000001;
+	  }
+  }
   //(Label:)Loop内部一个V块=RPT
-  Loop 90 {
+  RPTlable: Loop 90 {
 	  V {  _bidi_=00;
 		   _pi_=001111111111111111111111111111111000000000000000000000000000;
 	  }
-  } loop_91: Loop 91 {
+  } loop_91: Loop 91 { // {}同行块
 	  V {  _bidi_=00;
 		   _pi_=001111111111111111111111111111111000000000000000000000000000;
 	  }
@@ -137,14 +166,9 @@ Pattern scan_test  {
 		   _pi_=001111111111111111111111111111111000000000000000000000000000;
 	  }
   }
-  MatchLoop 20 {
-	  V {  _bidi_=00;
-		   _pi_=001111111111111111111111111111111000000000000000000000000001;
-	  }
-  }
-  // 两层Loop嵌套循环
+  // 支持两层Loop嵌套循环
   Loop 30 {
-	  // 嵌套循环内部Loop前面要有最少一个块，否则就会出现一个空周期
+	  // 嵌套循环内部Loop前面要有最少一个块，否则指令没有位置放
 	  V {  _bidi_=00;
 		   _pi_=001111111111111111111111111111111000000000000000000000000001;
 	  }
@@ -152,30 +176,13 @@ Pattern scan_test  {
 		  V {  _bidi_=00;
 			   _pi_=001111111111111111111111111111111000000000000000000000000001;
 		  }
-		  Loop 2000 {
-			  V {  _bidi_=00;
-				   _pi_=001111111111111111111111111111111000000000000000000000000001;
-			  }
-		  }
-		  V {  _bidi_=10;
-			   _pi_=001111111111111111111111111111111000000000000000000000000001;
-		  }
 	  }
 	  llabel1: V {  _bidi_=10;
 		   _pi_=001111111111111111111111111111111000000000000000000000000001;
 	  }
-	  // 嵌套循环内部Loop后面要有最少一个块，否则就会出现一个空周期
+	  // 嵌套循环内部Loop后面要有最少一个块，否则指令没有位置放
 	  V {  _bidi_=10;
 		   _pi_=001111111111111111111111111111111000000000000000000000000001;
-	  }
-  }
-  // 带Label的Loop
-  LImlable: Loop 40 {
-	  V {  _bidi_=00;
-		   _pi_=101111111111111111111111111111111000000000000000000000000001;
-	  }
-	  V {  _bidi_=10;
-		   _pi_=101111111111111111111111111111111000000000000000000000000001;
 	  }
   }
   // 切换Timing

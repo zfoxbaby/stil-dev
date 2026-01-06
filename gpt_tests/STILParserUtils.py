@@ -15,8 +15,9 @@ import os
 import sys
 from typing import List, Dict
 from lark import Tree, Token
-
+from typing import Optional, Callable
 from TimingData import TimingData
+
 
 try:
     from Semi_ATE.STIL.parsers.STILParser import STILParser
@@ -36,6 +37,10 @@ class PatternEventHandler:
         """解析开始时调用"""
         pass
     
+    def on_header(self, header: str) -> None:
+        """header """
+        pass
+
     def on_waveform_change(self, wft_name: str) -> None:
         """波形表切换时调用（W 语句）
         
@@ -177,7 +182,8 @@ class STILParserUtils:
     
     # ========================== Timing解析 ==========================
     
-    def extract_timings(self, tree: Tree, signal_types: Dict[str, str] = None) -> Dict[str, List[TimingData]]:
+    def extract_timings(self, tree: Tree, signal_types: Dict[str, str] = None, signal_groups: Dict[str, List[str]] = None,
+     progress_callback: Optional[Callable[[str], None]] = None) -> Dict[str, List[TimingData]]:
         """从Timing块提取Timing信息
         
         Args:
@@ -225,7 +231,8 @@ class STILParserUtils:
                             self._process_single_time_offset(subchild, timing_data, time_values, edge_values)
                         if isinstance(subchild, Tree) and subchild.data == "b_timing__close_wfcs_block":
                             self._assign_timing_data(timing_data, time_values, edge_values)
-                            timing_list = self._split_timing_data(timing_data, signal_types)
+                            timing_list = self._split_timing_data(timing_data, signal_types,
+                             signal_groups, progress_callback)
                             timings[wft].extend(timing_list)
                             time_values.clear()
                             edge_values.clear()
@@ -236,7 +243,10 @@ class STILParserUtils:
                             timing_data.period = period
         return timings
     
-    def _split_timing_data(self, timing_data: TimingData, signal_types: Dict[str, str] = None) -> List[TimingData]:
+    def _split_timing_data(self, timing_data: TimingData,
+     signal_types: Dict[str, str] = None,
+     signal_groups: Dict[str, List[str]] = None, 
+     progress_callback: Optional[Callable[[str], None]] = None) -> List[TimingData]:
         """拆分包含多个wfc字符的TimingData
         
         Args:
@@ -288,10 +298,14 @@ class STILParserUtils:
         
         # 为每个 TimingData 计算属性（is_strobe, edge_format, vector_replacement）
         # 根据信号类型判断是否是 STROBE
-        signal_type = signal_types.get(timing_data.signal, "")
-        timing_data.compute_timing_properties(signal_type=signal_type)
+        signal_name = timing_data.signal
+        if timing_data.signal in signal_groups:
+            signal_names = signal_groups.get(timing_data.signal, "")
+            signal_name = signal_names[0];
+        signal_type = signal_types.get(signal_name, "")
+        timing_data.compute_timing_properties(signal_type=signal_type, progress_callback=progress_callback)
         for td in timing_data_list:
-            td.compute_timing_properties(signal_type=signal_type)
+            td.compute_timing_properties(signal_type=signal_type, progress_callback=progress_callback)
         
         return timing_data_list
     
@@ -355,9 +369,3 @@ def extract_signals(tree: Tree) -> Dict[str, str]:
 def extract_signal_groups(tree: Tree) -> Dict[str, List[str]]:
     """提取信号组"""
     return get_default_utils().extract_signal_groups(tree)
-
-
-def extract_timings(tree: Tree, signal_types: Dict[str, str] = None) -> Dict[str, List[TimingData]]:
-    """提取Timing"""
-    return get_default_utils().extract_timings(tree, signal_types)
-

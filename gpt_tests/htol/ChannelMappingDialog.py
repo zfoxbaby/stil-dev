@@ -364,11 +364,11 @@ class ChannelMappingDialog:
             self.sheet.refresh()
             self.log(f"已从 {file_path} 导入配置")
             self.log(f"更新了 {updated_count} 个信号的通道映射")
-            messagebox.showinfo(
-                "导入成功", 
-                f"已导入 {updated_count} 个信号的通道映射配置", 
-                parent=self.top
-            )
+            # messagebox.showinfo(
+            #     "导入成功", 
+            #     f"已导入 {updated_count} 个信号的通道映射配置", 
+            #     parent=self.top
+            # )
 
         except Exception as e:
             messagebox.showerror("导入失败", f"导入失败: {e}", parent=self.top)

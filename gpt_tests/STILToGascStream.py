@@ -36,6 +36,7 @@ from typing import List, Dict, Tuple
 from TimingData import TimingData
 from STILParserUtils import STILParserUtils
 from STILParserTransformer import PatternEventHandler, PatternStreamParserTransformer
+import Logger
 
 try:  # Try importing the package as an installed dependency first
     from Semi_ATE.STIL.parsers.STILParser import STILParser
@@ -117,6 +118,10 @@ class STILToGascStream(PatternEventHandler):
             self.output_file.write("SPM_PATTERN (SCAN) {\n")
             self.pattern_section_started = True
     
+    def on_header(self, header: str) -> None:
+        """头信息"""
+        #self.output_file.write(header + "\n")
+
     def on_waveform_change(self, wft_name: str) -> None:
         """波形表切换"""
         self.current_wft = wft_name
@@ -135,7 +140,7 @@ class STILToGascStream(PatternEventHandler):
         # 构建向量字符串
         vec_parts: List[str] = []
         
-        for pat_key, wfc_str, instr, param, label in vec_data_list:
+        for pat_key, wfc_str, instr, param, label, vector_address in vec_data_list:
             # 记录第一个 V 的 header
             if self.need_append_header:
                 self.pat_header.append(pat_key)
@@ -189,11 +194,8 @@ class STILToGascStream(PatternEventHandler):
     
     def on_parse_error(self, error_msg: str, statement: str = "") -> None:
         """解析错误"""
-        if self.debug:
-            if statement:
-                print(f"解析错误: {error_msg}\n语句: {statement[:100]}...")
-            else:
-                print(f"解析错误: {error_msg}")
+        self.progress_callback(f"解析错误: {error_msg}\n语句: {statement[:100]}...")
+        Logger.error(error_msg, statement)
     
     # ========================== GASC 格式化方法 ==========================
     
@@ -302,7 +304,8 @@ class STILToGascStream(PatternEventHandler):
             
             # 写入 Timing
             self.output_file.write("Timing {\n")
-            timings = self.parser_utils.extract_timings(tree, self.signals)
+            timings = self.parser_utils.extract_timings(tree, self.signals,
+                 self.signal_groups, self.progress_callback)
             for key, timing in timings.items():
                 for timing_data in timing:
                     self.output_file.write(f"     {timing_data.wft}, {timing_data.period}, ")
