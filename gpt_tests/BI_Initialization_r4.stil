@@ -1,4 +1,4 @@
-STIL 1.0;
+STIL 1.0; // 第一行必须STIL 1.0;开头
 
 Header  {
 Title "tviibe2m_top_BI_Initialization_stil_gz" ;
@@ -119,6 +119,7 @@ Pattern scan_test  {
   macro_z_end: V {  _bidi_=11;
        _pi_=00 \r31 1 000000000000000000000000000;
   }
+  // MatchLoop指令 HTOL机型不支持，这里先按照ATE指令转换成MBGN
   // MatchLoop匹配内部单个Vector行（等于IMATCH），如果该行是pass就退出循环，Infinite=无限循环
   MatchLoop 2000 {
 	  V {  _bidi_=00;

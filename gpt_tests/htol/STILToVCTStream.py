@@ -20,11 +20,10 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from htol.MicroInstructionMapper import MicroInstructionMapper
 from TimingData import TimingData
 from STILParserUtils import STILParserUtils, PatternEventHandler
 from htol.TimingFormatter import TimingFormatter
-from STILParserTransformer import PatternStreamParserTransformer
+from STILParserTransformer import PatternStreamParserTransformer, format_vct_instruction
 import Logger
 
 try:
@@ -65,9 +64,6 @@ class STILToVCTStream(PatternEventHandler):
         # 通用解析工具
         self.parser_utils = STILParserUtils(debug=debug)
         
-        # 微指令映射器
-        self.instruction_mapper = MicroInstructionMapper()
-        
         # Timing格式转换器
         self.timing_formatter = TimingFormatter()
         
@@ -80,6 +76,8 @@ class STILToVCTStream(PatternEventHandler):
     def stop(self) -> None:
         """请求停止转换"""
         self._stop_requested = True
+        if self.pattern_parser0:
+            self.pattern_parser0.stop()
 
     def read_stil_signals(self, print_log: bool = True) -> List[str]:
         """读取STIL文件，提取实际使用的信号列表"""
@@ -195,7 +193,7 @@ class STILToVCTStream(PatternEventHandler):
     
     def map_instruction(self, stil_instr: str, param: str = "") -> str:
         """映射并格式化微指令"""
-        return self.instruction_mapper.format_vct_instruction(stil_instr, param)
+        return format_vct_instruction(stil_instr, param)
 
     # ========================== VCT文件生成 ==========================
     
@@ -475,7 +473,7 @@ class STILToVCTStream(PatternEventHandler):
         for pat_key, wfc_str, instr, param, label, vec_addr in vec_data_list:
             # 微指令区（16字符）
             instr_str = instr
-            micro_instr = self.instruction_mapper.format_vct_instruction(instr, param)
+            micro_instr = format_vct_instruction(instr, param)
             vector_address = vec_addr
             
             # 获取该 pat_key 对应的信号列表
@@ -536,7 +534,7 @@ class STILToVCTStream(PatternEventHandler):
             格式化后的 Vector 行（通道数据全为 "."）
         """
         # 微指令区（16字符）
-        micro_instr = self.instruction_mapper.format_vct_instruction(instr, param)
+        micro_instr = format_vct_instruction(instr, param)
         
         # 标志位区（固定值）
         mrst_mcmp = ".."       # MRST + MCMP
@@ -603,8 +601,10 @@ class STILToVCTStream(PatternEventHandler):
             if self.progress_callback:
                 self.progress_callback(f"警告：Procedure '{proc_name}' 未找到，生成 CALL 指令")
     
-    def on_micro_instruction(self, instr: str, param: str = "", vector_address: int = 0) -> None:
+    def on_micro_instruction(self, label: str, instr: str, param: str = "", vector_address: int = 0) -> None:
         """其他微指令（Stop, Goto, IddqTestPoint 等）"""
+        if label:
+            self.output_file.write(f"{label}:\n")
         rradr = self.timing_formatter.wft_to_rradr.get(self.current_wft, 0)
         line = self._format_micro_only_line(instr, param, rradr, vector_address)
         self.output_file.write(line + "\n")
@@ -671,28 +671,50 @@ class STILToVCTStream(PatternEventHandler):
         return vector_count
     
     def convert(self) -> int:
-        """执行VCT转换"""
+        """执行VCT转换
+        
+        Returns:
+            0: 成功, -1: 失败或被停止
+        """
         if self.progress_callback:
             self.progress_callback("开始生成VCT文件...")
         
         try:
             with open(self.target_file, 'w', encoding='utf-8') as f:
+                if self._stop_requested:
+                    return -1
+                    
                 if self.progress_callback:
                     self.progress_callback("生成文件头...")
                 f.write(self.generate_vct_header())
                 
+                if self._stop_requested:
+                    return -1
+                    
                 if self.progress_callback:
                     self.progress_callback("生成Timing定义...")
                 f.write(self.generate_vct_timing_section())
                 
+                if self._stop_requested:
+                    return -1
+                    
                 if self.progress_callback:
                     self.progress_callback("生成DRVR定义...")
                 f.write(self.generate_vct_drvr_section())
                 f.write("\n")
                 
+                if self._stop_requested:
+                    return -1
+                    
                 if self.progress_callback:
                     self.progress_callback("生成Vector数据...")
                 vector_count = self.generate_vct_vector_section(f)
+                
+                # 检查是否被停止
+                if self._stop_requested:
+                    if self.progress_callback:
+                        self.progress_callback(f"转换已停止，已处理 {vector_count} 个向量块")
+                    return -1
                 
                 if self.progress_callback:
                     self.progress_callback(f"Vector数据生成完成，共 {vector_count} 个向量块")

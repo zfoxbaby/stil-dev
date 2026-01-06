@@ -78,7 +78,7 @@ class PatternEventHandler:
         """
         pass
     
-    def on_micro_instruction(self, instr: str, param: str = "", vector_address: int = 0) -> None:
+    def on_micro_instruction(self, label: str, instr: str, param: str = "", vector_address: int = 0) -> None:
         """其他微指令时调用（Stop, Goto, IddqTestPoint 等）
         
         Args:

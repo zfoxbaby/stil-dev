@@ -22,6 +22,81 @@ from typing import Callable
 from STILParserUtils import PatternEventHandler
 from TimingData import TimingData
 
+# STIL 到 VCT 微指令映射表
+INSTRUCTION_MAPPING: Dict[str, str] = {
+    "Stop": "HALT",
+    "Goto": "JUMP",
+    "Loop": "LI",       # 如果Loop里面只有一个V那么就替换成RPT
+    "MatchLoop": "MBGN",
+    "Call": "CALL",
+    "Return": "RET",
+    "IddqTestPoint": "IDDQ",
+    "IDDQTestPoint": "IDDQ",
+    # 补充
+    "Repeat": "RPT",
+    "LoopEnd": "JNI",
+    "MBGN": "MBGN",
+    "IMATCH": "IMATCH",
+    "MEND": "MEND",
+}
+
+# 禁用的指令列表（遇到这些指令会跳过解析并提示用户）
+DISABLED_INSTRUCTIONS: List[str] = [
+    # "ScanChain",      # 示例：禁用 ScanChain 指令
+    # "Shift",          # 示例：禁用 Shift 指令
+    # MatchLoop",
+]
+
+# 无指令时的缺省值
+DEFAULT_INSTRUCTION = "ADV"
+
+
+def map_instruction(stil_instr: str, supplment_instr: str = "") -> str:
+    """映射 STIL 指令到 VCT 指令
+    
+    Args:
+        stil_instr: STIL 中的指令名
+        
+    Returns:
+        映射后的 VCT 指令名
+    """
+    if not stil_instr or stil_instr.strip() == "":
+        return DEFAULT_INSTRUCTION + supplment_instr
+    
+    return INSTRUCTION_MAPPING.get(stil_instr, stil_instr) + supplment_instr
+
+
+def is_disabled(stil_instr: str) -> bool:
+    """检查指令是否被禁用
+    
+    Args:
+        stil_instr: STIL 中的指令名
+        
+    Returns:
+        True 如果指令被禁用
+    """
+    return stil_instr in DISABLED_INSTRUCTIONS
+
+
+def format_vct_instruction(stil_instr: str, param: str = "") -> str:
+    """格式化为 VCT 指令字符串（固定14字符宽度）
+    
+    Args:
+        stil_instr: STIL 中的指令名
+        param: 指令参数
+        
+    Returns:
+        格式化后的 VCT 指令字符串（14字符宽度）
+    """
+    vct_instr = map_instruction(stil_instr)
+    
+    if param:
+        instr_str = f"{vct_instr} {param}"
+    else:
+        instr_str = vct_instr
+    
+    return instr_str.ljust(14)
+    
 class ParserState:
     """解析器共享状态
     
@@ -66,7 +141,8 @@ class STILParserTransformer(Transformer):
     每个方法对应一个语法规则。
     """
     
-    def __init__(self, handler: PatternEventHandler,
+    def __init__(self, parser: PatternStreamParserTransformer,
+          handler: PatternEventHandler,
           text_original: str,
           parser_state:ParserState):
         """初始化 Transformer
@@ -76,6 +152,7 @@ class STILParserTransformer(Transformer):
             parser_state: 解析器状态（共享状态对象）
         """
         super().__init__()
+        self.parser = parser
         self.handler = handler
         self.state = parser_state
         self.text_original = text_original;
@@ -128,16 +205,30 @@ class STILParserTransformer(Transformer):
         """
         if (len(children) == 0 and len(self.state.vec_data_list) == 0):
             return {}
+        
+        # 检查禁用指令
+        if self.state.curr_instr and is_disabled(self.state.curr_instr):
+            self.parser.stop()
+            # 结束解析，因为存在不支持的指令，解析出来也不准确
+            self.handler.on_parse_complete(self.state.vector_count)
+            self.handler.on_parse_error(
+                f"机型不支持 '{self.state.curr_instr}' 指令，转换中止！！！", 
+                f"不支持的指令列表: {DISABLED_INSTRUCTIONS}"
+            )
+            return {}
+        
         vec_data_list = []
         for child in children:
             # 收集向量数据（vec_block 返回的列表）
             if not isinstance(child, List):
                 continue
             for item in child:
-                if (self.state.curr_instr == "Loop"):
-                    self.state.curr_instr = f"LI{self.state.loop_deep - 1}"
-                if (self.state.curr_instr == "MatchLoop"):
-                    self.state.curr_instr = "MBGN"
+                # 映射指令
+                if self.state.curr_instr == "Loop":
+                    self.state.curr_instr = map_instruction("Loop", str(self.state.loop_deep - 1))
+                elif self.state.curr_instr:
+                    # 其他指令通过映射表转换
+                    self.state.curr_instr = map_instruction(self.state.curr_instr)
                 # 6 元组：(signal, data, instr, param, label, vector_address)
                 vec_data_list.append((item.get("signal"), item.get("data"), 
                     self.state.curr_instr, self.state.curr_param, 
@@ -205,7 +296,7 @@ class STILParserTransformer(Transformer):
         for vec_data in self.state.vec_data_list:
             # vec_data中拿到第一个List，从中找到 Label
             for vec_data_item in vec_data:
-                if f"LI{self.state.loop_deep}" in vec_data_item[2]:
+                if f"{map_instruction("Loop")}{self.state.loop_deep}" in vec_data_item[2]:
                     if vec_data_item[4]:
                         loop_label = vec_data_item[4]
                         break
@@ -218,15 +309,17 @@ class STILParserTransformer(Transformer):
         # - 否则最后一个改成 JNI{m}，跳转到 loop_label
         new_list = []
         for vec_data in vec_data_list:
-            if "LI" in vec_data[2]:
+            if map_instruction("Loop") in vec_data[2]:
                 # 上一个如果是LI，说明这个LOOP只有一个V块, LI -> RPT
-                new_list.append((vec_data[0], vec_data[1], "RPT", vec_data[3], vec_data[4], vec_data[5]))
+                new_list.append((vec_data[0], vec_data[1],
+                 map_instruction("Repeat"), vec_data[3], vec_data[4], vec_data[5]))
             elif vec_data[2].strip() != "":
                 # Loop块中间要么是1个V，要么前后各有一个V，否则指令没有地方放
                 self.handler.on_parse_error("Loop块中间要么是1个V，要么前后各有一个V，否则指令没有地方放", "")
             else:
                 new_list.append((vec_data[0], vec_data[1],
-                    f"JNI{self.state.loop_deep}", loop_label, vec_data[4], vec_data[5]))
+                     f"{map_instruction("LoopEnd")}{self.state.loop_deep}",
+                     loop_label, vec_data[4], vec_data[5]))
 
         self.state.vec_data_list.append(new_list)
         
@@ -274,16 +367,18 @@ class STILParserTransformer(Transformer):
         vec_data_list = self.state.vec_data_list.pop()
         new_list = []
         for vec_data in vec_data_list:
-            if "MBGN" in vec_data[2]:
+            if map_instruction("MBGN") in vec_data[2]:
                 # 此时是单行Match IMATCH
                 # 上一个如果是LI，说明这个LOOP只有一个V块, LI -> RPT
-                new_list.append((vec_data[0], vec_data[1], "IMATCH", vec_data[3], vec_data[4], vec_data[5]))
+                new_list.append((vec_data[0], vec_data[1],
+                 map_instruction("IMATCH"),
+                 vec_data[3], vec_data[4], vec_data[5]))
             elif vec_data[2].strip() != "":
                 # 包含微指令错误
                 self.handler.on_parse_error("MatchLoop 块中间包含微指令", "")
             else:
                 new_list.append((vec_data[0], vec_data[1],
-                    f"MEND", "", vec_data[4], vec_data[5]))
+                    map_instruction("MEND"), "", vec_data[4], vec_data[5]))
 
         self.state.vec_data_list.append(new_list)
         
@@ -338,7 +433,7 @@ class STILParserTransformer(Transformer):
                 # 触发回调
                 self.handler.on_procedure_call(key, content, self.state.vector_address)
                 # 递归处理（使用新的 Transformer 实例）
-                transformer = STILParserTransformer(self.handler, "", self.state)
+                transformer = STILParserTransformer(self, self.handler, "", self.state)
                 transformer.transform(proc_tree)
                 transformer.state.vector_count
                 # self.state.vector_count += 
@@ -374,28 +469,47 @@ class STILParserTransformer(Transformer):
         return {}
 
     # ========================== 其他微指令 ==========================
+    def _handle_micro_instruction(self, instr: str, param: str = "") -> bool:
+        """处理微指令的通用方法
+        
+        Args:
+            instr: 指令名称
+            param: 指令参数
+            
+        Returns:
+            True 如果指令被处理，False 如果指令被禁用
+        """
+        # 检查禁用指令
+        if is_disabled(instr):
+            self.handler.on_parse_error(
+                f"指令 '{instr}' 已被禁用，跳过解析",
+                f"禁用列表: {DISABLED_INSTRUCTIONS}"
+            )
+            return False
+        
+        # 映射并触发回调
+        mapped_instr = map_instruction(instr)
+        self.handler.on_micro_instruction(self.state.curr_label,
+         mapped_instr, param, self.state.vector_address)
+        self.state.vector_address += 1
+        self.state.vector_count += 1
+        return True
+    
     def s_stmt(self, children: List) -> Dict[str, Any]:
         """处理 Stop 语句"""
         tokens = [c.value for c in children if isinstance(c, Token)]
-        self.handler.on_micro_instruction("Stop", tokens[1] if len(tokens) > 1 else "", self.state.vector_address)
-        self.state.vector_address += 1
-        self.state.vector_count += 1
+        self._handle_micro_instruction("Stop", tokens[1] if len(tokens) > 1 else "")
         return {}
     
     def g_stmt(self, children: List) -> Dict[str, Any]:
         """处理 Goto 语句"""
         tokens = [c.value for c in children if isinstance(c, Token)]
-        self.handler.on_micro_instruction("Goto", tokens[1] if len(tokens) > 1 else "", self.state.vector_address)
-        self.state.vector_address += 1
-        self.state.vector_count += 1
+        self._handle_micro_instruction("Goto", tokens[1] if len(tokens) > 1 else "")
         return {}
     
     def i_stmt(self, children: List) -> Dict[str, Any]:
         """处理 IddqTestPoint 语句"""
-        tokens = [c.value for c in children if isinstance(c, Token)]
-        self.handler.on_micro_instruction("IddqTestPoint", "", self.state.vector_address)
-        self.state.vector_address += 1
-        self.state.vector_count += 1
+        self._handle_micro_instruction("IddqTestPoint", "")
         return {}
     
     # ========================== 跳过的节点 ==========================
@@ -521,7 +635,7 @@ class PatternStreamParserTransformer:
             proc_tree = parser.parse_content(statement_buffer)
             # proc_tree = self.state.multi_parser.parse(statement_buffer)
             # 使用新的 Transformer 实例
-            transformer = STILParserTransformer(self.handler, statement_buffer, self.state)
+            transformer = STILParserTransformer(self, self.handler, statement_buffer, self.state)
             transformer.transform(proc_tree)
                 
         except Exception as e:
@@ -547,9 +661,16 @@ class PatternStreamParserTransformer:
 
     def read_stil_signals(self, print_log: bool = True,
      progress_callback: Optional[Callable[[str], None]] = None) -> List[str]:
-        
-
         """读取STIL文件，提取实际使用的信号列表"""
+
+        # 先读取文件第一行，看是否包含 STIL space+ Double space+;字样(STIL 1.0;)
+        # 如果不包含，说明不是STIL文件， 提示用户后返回
+        with open(self.stil_file, 'r', encoding='utf-8') as f:
+            first_line = f.readline().strip()
+            if not first_line.startswith('STIL 1.0;'):
+                self.handler.on_parse_error("选择的文件并非STIL文件，无法解析...")
+                return 0
+                
         if progress_callback:
             progress_callback("开始读取STIL文件...")
         
@@ -675,7 +796,7 @@ class PatternStreamParserTransformer:
         # 4. 流式解析 Pattern 并触发回调
         buffer_lines = []
         is_pattern = False
-        transformer = STILParserTransformer(self.handler, "", self.state)
+        transformer = STILParserTransformer(self, self.handler, "", self.state)
         try:
             with open(self.stil_file, 'r', encoding='utf-8') as f:
                 for line in f:
@@ -742,3 +863,4 @@ class PatternStreamParserTransformer:
 
     def get_timings(self) -> Dict[str, List[TimingData]]:
         return self.timings
+

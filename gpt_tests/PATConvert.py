@@ -46,24 +46,29 @@ class PATConvert:
 
         ttk.Label(frame_source, text="Source:").pack(side="left")
         self.source_var = tk.StringVar()
-        ttk.Entry(frame_source, textvariable=self.source_var, width=40).pack(side="left", padx=5, expand=True, fill="x")
-        ttk.Button(frame_source, text="...", command=self.select_source_type).pack(side="left")
+        self.source_entry = ttk.Entry(frame_source, textvariable=self.source_var, width=40)
+        self.source_entry.pack(side="left", padx=5, expand=True, fill="x")
+        self.source_browse_btn = ttk.Button(frame_source, text="...", command=self.select_source_type)
+        self.source_browse_btn.pack(side="left")
 
         # ============ Output File Group (右边) ============
-        output_group = ttk.LabelFrame(container, text="Output File")
+        output_group = ttk.LabelFrame(container, text="Output Group")
         output_group.pack(side="left", fill="both", padx=(5, 0))
 
         # Option Button
         frame_option = ttk.Frame(output_group)
         frame_option.pack(fill="x", padx=5, pady=2)
-        ttk.Button(frame_option, text="Option", command=self.on_option_click).pack(side="left")
+        self.option_btn = ttk.Button(frame_option, text="Option", command=self.on_option_click)
+        self.option_btn.pack(side="left")
 
         # Radio Buttons: VCT and PAT
         frame_radio = ttk.Frame(output_group)
         frame_radio.pack(fill="x", padx=5, pady=2)
         self.output_format_var = tk.StringVar(value="VCT")  # 默认选中VCT
-        ttk.Radiobutton(frame_radio, text="VCT", variable=self.output_format_var, value="VCT").pack(side="left", padx=5)
-        ttk.Radiobutton(frame_radio, text="PAT", variable=self.output_format_var, value="PAT").pack(side="left", padx=5)
+        self.vct_radio = ttk.Radiobutton(frame_radio, text="VCT", variable=self.output_format_var, value="VCT")
+        self.vct_radio.pack(side="left", padx=5)
+        self.pat_radio = ttk.Radiobutton(frame_radio, text="PAT", variable=self.output_format_var, value="PAT")
+        self.pat_radio.pack(side="left", padx=5)
 
         # ============ Target Folder ============
         # frame_target = ttk.Frame(root)
@@ -111,6 +116,22 @@ class PATConvert:
     def clear_log(self):
         """清空日志文本框"""
         self.text_area.delete("1.0", tk.END)
+
+    def set_controls_state(self, state: str) -> None:
+        """设置 Input Group 和 Output File 控件的状态
+        
+        Args:
+            state: "normal" 或 "disabled"
+        """
+        # Input Group 控件
+        self.source_type.config(state=state if state == "disabled" else "readonly")
+        self.source_entry.config(state=state)
+        self.source_browse_btn.config(state=state)
+        
+        # Output File 控件
+        self.option_btn.config(state=state)
+        self.vct_radio.config(state=state)
+        self.pat_radio.config(state=state)
 
     def select_combo(self, event=None):
         # set source text empty when the source_type be selected
@@ -237,9 +258,10 @@ class PATConvert:
         # 重置停止标志
         self._stop_requested = False
         
-        # 启用Stop按钮，禁用Start按钮
+        # 启用Stop按钮，禁用Start按钮和输入控件
         self.start_button.config(state="disabled")
         self.stop_button.config(state="normal")
+        self.set_controls_state("disabled")
         
         # 启动线程防止 UI 卡死
         threading.Thread(target=self.convert, args=(source, target), daemon=True).start()
@@ -329,6 +351,9 @@ class PATConvert:
     def stop_conversion(self):
         """停止当前的转换"""
         self._stop_requested = True  # 设置批量转换停止标志
+        self.log("用户点击Stop按钮，正在停止转换...")
+        
+        # 停止当前正在运行的解析器（PAT 或 VCT）
         if self.current_parser:
             self.current_parser.stop()
             self.log("用户点击Stop按钮，正在停止转换...")
@@ -471,9 +496,10 @@ class PATConvert:
             else:
                 self.log("批量转换已停止!")
         finally:
-            # 转换完成或停止后，恢复按钮状态
+            # 转换完成或停止后，恢复按钮和控件状态
             self.start_button.config(state="normal")
             self.stop_button.config(state="disabled")
+            self.set_controls_state("normal")
 
 if __name__ == "__main__":
     # 初始化日志系统并安装全局异常处理器

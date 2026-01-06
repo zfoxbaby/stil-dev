@@ -36,6 +36,7 @@ from typing import List, Dict, Tuple
 from TimingData import TimingData
 from STILParserUtils import STILParserUtils
 from STILParserTransformer import PatternEventHandler, PatternStreamParserTransformer
+from STILParserTransformer import map_instruction
 import Logger
 
 try:  # Try importing the package as an installed dependency first
@@ -179,10 +180,12 @@ class STILToGascStream(PatternEventHandler):
             vec = "X" * self.signal_count
             self.on_vector(vec, f"Call {proc_name}", "")
     
-    def on_micro_instruction(self, instr: str, param: str = "", vector_address: int = 0) -> None:
+    def on_micro_instruction(self, label: str, instr: str, param: str = "", vector_address: int = 0) -> None:
         """其他微指令（Stop, Goto 等）"""
         vec = "X" * self.signal_count
-        formatted_instr = f"{instr} {param}".strip() if param else instr
+        # 映射指令
+        mapped_instr = map_instruction(instr)
+        formatted_instr = f"{mapped_instr} {param}".strip() if param else mapped_instr
         self._write_vector_line(vec, formatted_instr, self.current_wft, "")
         self.current_wft = ""
     
