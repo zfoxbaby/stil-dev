@@ -75,10 +75,9 @@ class STILToGascStream(PatternEventHandler):
         self.current_wft = ""
         self.wft_pending = False
         self.pat_header: List[str] = []
-        self.need_append_header = True
         
-        # Streaming output
-        self.output_file = open(target_file, "w", encoding="utf-8")
+        # Streaming output（延迟打开）
+        self.output_file = None
         self.header_written = False
         self.pattern_section_started = False
         
@@ -86,8 +85,6 @@ class STILToGascStream(PatternEventHandler):
         self.vector_count = 0
         self.progress_callback = progress_callback
 
-        self.header_placeholder_size = 0  # 记录预留的Header空间大小
-        self.header_start_position = 0     # 记录Header开始位置
         self._stop_requested = False       # 停止标志
 
         self.debug = debug
@@ -101,6 +98,8 @@ class STILToGascStream(PatternEventHandler):
         # 信号和信号组（从header解析中获取）
         self.signals: Dict[str, str] = {}  # {信号名: 信号类型}
         self.signal_groups: Dict[str, List[str]] = {}
+        self.timings: Dict[str, List] = {}  # Timing 数据
+        self.used_signals: List[str] = []   # Pattern 使用的信号列表
         self.signal_count = 0
     
     def stop(self):
@@ -136,18 +135,14 @@ class STILToGascStream(PatternEventHandler):
                   instr: str = "", param: str = "") -> None:
         """遇到向量数据"""
         # 适配 Transformer 版本的 vec_data_list 格式
-        # Transformer 返回: [(signal, data, instr, param, label), ...]
+        # Transformer 返回: [(signal, data, instr, param, label, vector_address), ...]
         
         # 构建向量字符串
         vec_parts: List[str] = []
         
         for pat_key, wfc_str, instr, param, label, vector_address in vec_data_list:
-            # 记录第一个 V 的 header
-            if self.need_append_header:
-                self.pat_header.append(pat_key)
             vec_parts.append(wfc_str)
         
-        self.need_append_header = False
         vec = "".join(vec_parts)
         
         # 如果向量长度小于信号数，补充 X
@@ -241,61 +236,49 @@ class STILToGascStream(PatternEventHandler):
         if self.progress_callback:
             self.progress_callback(f"文件大小: {size_mb:.1f}MB")
             self.progress_callback(f"打开文件: {self.stil_file}")
-            self.progress_callback("开始提取信号/组/Timing内容...")
-        
-        # 解析文件头部（Signals/SignalGroups/Timing）
-        header_buffer = ""
-        is_pattern = False
         
         try:
-            with open(self.stil_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if self._stop_requested:
-                        if self.progress_callback:
-                            self.progress_callback("转换已被用户停止")
-                        return -1
-                    
-                    if line.strip().startswith('Pattern ') and '{' in line:
-                        is_pattern = True
-                        break
-                    
-                    header_buffer += line
+            # 1. 初始化 Pattern 解析器，读取信号信息（包括 pat_header）
+            if self.progress_callback:
+                self.progress_callback("开始提取信号/组/Timing内容...")
             
-            # 解析头部
-            if self.debug:
-                print("Header buffer 大小:", len(header_buffer))
+            self.pattern_parser = PatternStreamParserTransformer(self.stil_file, self, self.debug)
+            self.used_signals = self.pattern_parser.read_stil_signals(
+                print_log=True, 
+                progress_callback=self.progress_callback
+            )
+            
+            if self._stop_requested:
+                if self.progress_callback:
+                    self.progress_callback("转换已被用户停止")
+                return -1
+            
+            if not self.used_signals:
+                if self.progress_callback:
+                    self.progress_callback("未能提取到信号信息")
+                return -1
+            
+            # 获取解析结果
+            self.signals = self.pattern_parser.get_signals()
+            self.signal_groups = self.pattern_parser.get_signal_groups()
+            self.pat_header = self.pattern_parser.get_pat_header()
+            self.timings = self.pattern_parser.get_timings()
+            self.signal_count = len(self.used_signals)
             
             if self.progress_callback:
-                self.progress_callback("开始信号/组/Timing语法解析...")
+                self.progress_callback(f"Pattern 使用了 {self.signal_count} 个信号")
             
-            parser = STILParser(self.stil_file, propagate_positions=True, debug=self.debug)
-            tree = parser.parse_content(header_buffer)
+            # 2. 打开输出文件，一次性写入所有头部信息
+            self.output_file = open(self.target_file, "w", encoding="utf-8")
             
-            if self.debug:
-                print(tree.pretty())
-            
-            if self.progress_callback:
-                self.progress_callback("信号/组/Timing语法解析完成...")
-                self.progress_callback("开始转换信号/组定义...")
-            
-            # 使用通用解析工具
-            self.signals = self.parser_utils.extract_signals(tree)
-            self.signal_groups = self.parser_utils.extract_signal_groups(tree)
-            self.signal_count = len(self.signals)
-            
-            if self.progress_callback:
-                self.progress_callback(f"找到 {self.signal_count} 个信号...")
-            
-            # 预留 Header 空间
-            estimated_header_size = self.signal_count * 255 + 1000
-            self.header_start_position = self.output_file.tell()
-            placeholder = " " * estimated_header_size + "\n"
-            self.output_file.write(placeholder)
-            self.header_placeholder_size = estimated_header_size
+            # 写入 Header（Pattern 使用的信号顺序）
+            self.output_file.write("HEADER {\n")
+            self.output_file.write("     " + ",".join(self.used_signals) + ";\n")
+            self.output_file.write("}\n\n")
             
             # 写入 Signals
             self.output_file.write("Signals {\n")
-            self.output_file.write("     " + ",".join(self.signals.keys()) + ";\n\n")
+            self.output_file.write("     " + ",".join(self.signals.keys()) + ";\n")
             self.output_file.write("}\n\n")
             
             # 写入 Signal Groups
@@ -306,35 +289,27 @@ class STILToGascStream(PatternEventHandler):
                 self.output_file.write("}\n\n")
             
             # 写入 Timing
-            self.output_file.write("Timing {\n")
-            timings = self.parser_utils.extract_timings(tree, self.signals,
-                 self.signal_groups, self.progress_callback)
-            for key, timing in timings.items():
-                for timing_data in timing:
-                    self.output_file.write(f"     {timing_data.wft}, {timing_data.period}, ")
-                    self.output_file.write(f"{timing_data.signal}, {timing_data.wfc}, ")
-                    self.output_file.write(f"{timing_data.t1}, {timing_data.e1}, ")
-                    self.output_file.write(f"{timing_data.t2}, {timing_data.e2}, ")
-                    self.output_file.write(f"{timing_data.t3}, {timing_data.e3}, ")
-                    self.output_file.write(f"{timing_data.t4}, {timing_data.e4};\n")
-            self.output_file.write("}\n\n")
+            if self.timings:
+                self.output_file.write("Timing {\n")
+                for key, timing_list in self.timings.items():
+                    for td in timing_list:
+                        self.output_file.write(f"     {td.wft}, {td.period}, ")
+                        self.output_file.write(f"{td.signal}, {td.wfc}, ")
+                        self.output_file.write(f"{td.t1}, {td.e1}, ")
+                        self.output_file.write(f"{td.t2}, {td.e2}, ")
+                        self.output_file.write(f"{td.t3}, {td.e3}, ")
+                        self.output_file.write(f"{td.t4}, {td.e4};\n")
+                self.output_file.write("}\n\n")
             
             if self.progress_callback:
                 self.progress_callback("信号/组/Timing转换完成...")
                 self.progress_callback("开始转换Pattern内容...")
             
-            # 初始化 Pattern 解析器并解析 - 使用 Transformer 版本
-            self.pattern_parser = PatternStreamParserTransformer(self.stil_file, self, self.debug)
+            # 3. 解析并写入 Pattern
             self.pattern_parser.parse_patterns()
             
-            # 关闭文件并完成收尾工作
+            # 4. 关闭文件
             self.close()
-            
-            if self._stop_requested:
-                if self.progress_callback:
-                    self.progress_callback(f"正在完成Header写入（已处理 {self.vector_count} 个向量）...")
-            
-            self.finalize_header(self.signals, self.signal_groups)
             
             if self._stop_requested:
                 if self.progress_callback:
@@ -351,63 +326,15 @@ class STILToGascStream(PatternEventHandler):
             if self.debug:
                 import traceback
                 traceback.print_exc()
+            self.close()
             return -1
 
     def transform_vec_char(self, vec: str) -> str:
-        """将vec中的字符转换为其他字符"""
-        """
-            wt1, 40ns, input_time_gen_0, 0, 0ns, D, , , , , , ;
-            wt1, 40ns, input_time_gen_0, 1, 0ns, U, , , , , , ;
-            wt1, 40ns, input_time_gen_0, N, 0ns, N, , , , , , ;
-            wt1, 40ns, _po_, L, 10ns, l, , , , , , ;
-            wt1, 40ns, _po_, H, 10ns, h, , , , , , ;
-            wt1, 40ns, _po_, X, 10ns, X, , , , , , ;
-            wt1, 40ns, _po_, T, 10ns, t, , , , , , ;
-            wt1, 40ns, _po_, Z, 10ns, Z, , , , , , ;
-            wt1, 40ns, _bidi_, 0, 0ns, Z, , , , , , ;
-            wt1, 40ns, _bidi_, 1, 0ns, , , , , , , ;
-            wt1, 40ns, _bidi_, Z, 0ns, , , , , , , ;
-            wt1, 40ns, _bidi_, N, 0ns, , , , , , , ;
+        """将vec中的字符转换为其他字符
+        
+        可以在子类中覆盖此方法实现自定义字符转换
         """
         return vec
-
-
-    def finalize_header(self, signals: Dict[str, str], sig_groups: dict[str, List[str]]) -> None:
-        """完善文件头部，直接在预留空间中写入Header
-        
-        Args:
-            signals: {信号名: 信号类型} 映射
-            sig_groups: {组名: [信号列表]} 映射
-        """
-        # 确定最终的模式信号列表
-        final_signals = []
-        for key in self.pat_header:
-            if key in sig_groups:
-                final_signals.extend(sig_groups[key])
-            elif key in signals:
-                final_signals.append(key)
-        
-        # 生成Header内容
-        header_content = "HEADER { \n"
-        header_content += "     " + ",".join(final_signals) + ";\n"
-        header_content += "}\n\n"
-        
-        # 检查Header大小是否超出预留空间
-        if len(header_content) > self.header_placeholder_size:
-            if self.progress_callback:
-                self.progress_callback(f"警告：Header大小({len(header_content)})超出预留空间({self.header_placeholder_size})")
-            # 如果超出，只能回退到使用临时文件的方式
-            self._finalize_header_with_temp_file(final_signals)
-            return
-        
-        # 在预留空间中填充实际的Header
-        # 填充到预留大小，保证文件结构不变
-        padded_header = header_content.ljust(self.header_placeholder_size) + "\n"
-        
-        # 打开文件，seek到Header开始位置，覆盖写入
-        with open(self.target_file, "r+", encoding="utf-8") as f:
-            f.seek(self.header_start_position)
-            f.write(padded_header)
 
     def close(self):
         if self.output_file and not self.output_file.closed:

@@ -746,8 +746,14 @@ class PatternStreamParserTransformer:
                                 # 初始化临时解析器（用于提取第一个 V 的信号）
                                 tree = self.multi_parser.parse(statement_buffer)
                                 self.pat_header = self._extract_first_vector_signals(tree)
-                                # self.pat_header去重复，保持顺序
-                                self.pat_header = list(set(self.pat_header))    
+                                # pat_header 去重但保持顺序（V 块中信号/信号组的顺序很重要）
+                                seen = set()
+                                unique_pat_header = []
+                                for item in self.pat_header:
+                                    if item not in seen:
+                                        seen.add(item)
+                                        unique_pat_header.append(item)
+                                self.pat_header = unique_pat_header
                                 if self.pat_header:
                                     first_v_found = True
                                     break

@@ -116,7 +116,8 @@ Pattern scan_test  {
        _pi_=00 \r31 1 000000000000000000000000000;
   }
   Macro macro_z;
-  macro_z_end: V {  _bidi_=11;
+  macro_z_end: // Label独立一行的写法
+  V {  _bidi_=11;
        _pi_=00 \r31 1 000000000000000000000000000;
   }
   // MatchLoop指令 HTOL机型不支持，这里先按照ATE指令转换成MBGN
@@ -146,11 +147,11 @@ Pattern scan_test  {
 	  }
   }
   //(Label:)Loop内部一个V块=RPT
-  RPTlable: Loop 90 {
+  RPT1: Loop 90 {
 	  V {  _bidi_=00;
 		   _pi_=001111111111111111111111111111111000000000000000000000000000;
 	  }
-  } loop_91: Loop 91 { // {}同行块
+  } RPT2: Loop 91 { // 块在同一行
 	  V {  _bidi_=00;
 		   _pi_=001111111111111111111111111111111000000000000000000000000000;
 	  }
