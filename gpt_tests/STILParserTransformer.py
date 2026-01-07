@@ -293,6 +293,7 @@ class STILParserTransformer(Transformer):
     
     def _expand_vec_data(self, data: str) -> str:
         """展开向量数据中的重复指令"""
+        #f \r2 f\w0000 0101
         pattern = r'\\r(\d+)\s+([^\s\\]+)'
         
         def replace_repeat(match):
