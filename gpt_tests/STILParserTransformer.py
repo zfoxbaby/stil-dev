@@ -19,7 +19,7 @@ from lark import Lark, Tree, Token, Transformer, LarkError, v_args
 from typing import Callable
 
 # 复用原有的 PatternEventHandler
-from STILParserUtils import PatternEventHandler
+from STILEventHandler import STILEventHandler
 from TimingData import TimingData
 
 # STIL 到 VCT 微指令映射表
@@ -40,6 +40,7 @@ INSTRUCTION_MAPPING: Dict[str, str] = {
     "MEND": "MEND",
 }
 
+#=========================通用函数，以后放到配置文件============================
 # 禁用的指令列表（遇到这些指令会跳过解析并提示用户）
 DISABLED_INSTRUCTIONS: List[str] = [
     # "ScanChain",      # 示例：禁用 ScanChain 指令
@@ -96,7 +97,8 @@ def format_vct_instruction(stil_instr: str, param: str = "") -> str:
         instr_str = vct_instr
     
     return instr_str.ljust(14)
-    
+#=======================================================================
+
 class ParserState:
     """解析器共享状态
     
@@ -115,6 +117,9 @@ class ParserState:
         self.procedures: Dict[str, str] = {}
         self.macrodefs: Dict[str, str] = {}
         self.multi_parser: Optional[Lark] = None
+        self.headers: Dict[str, str] = {}
+        # 如果出现Call、Macro会出现替换功能，Key是信号/信号组，Value是Vector
+        self.replace_vector_list : Dict[str, str] = {}
         self.debug = False
 
     def reset(self) -> None:
@@ -142,7 +147,7 @@ class STILParserTransformer(Transformer):
     """
     
     def __init__(self, parser: PatternStreamParserTransformer,
-          handler: PatternEventHandler,
+          handler: STILEventHandler,
           text_original: str,
           parser_state:ParserState):
         """初始化 Transformer
@@ -158,7 +163,38 @@ class STILParserTransformer(Transformer):
         self.text_original = text_original;
 
     # ========================== Header 处理 ==========================
-    # ========================== Token 处理 ==========================
+    def b_header__TITLE_STRING(self, token: Token) -> None:
+        """处理标题文本"""
+        self.handler.on_header({"Title": token.value})
+        self.state.headers["Title"] = token.value
+
+    def b_header__HEADER_DATE_STRING(self, token: Token) -> None:
+        """处理日期文本"""
+        self.handler.on_header({"Date": token.value})
+        self.state.headers["Date"] = token.value
+
+    def b_header__SOURCE_STRING(self, token: Token) -> None:
+        """处理源文本"""
+        self.handler.on_header({"Source": token.value})
+        self.state.headers["Source"] = token.value
+
+    def b_header__ANN_TEXT(self, token: Token) -> Dict[str, Any]:
+        """处理注释文本"""
+        return {"type": "history", "History": token.value}
+
+    def b_header__annotation_hist(self, children: List) -> Dict[str, Any]:
+        """处理注释历史块"""
+        values = [child.get("History") for child in children if isinstance(child, dict)]
+        self.state.headers["History"] = "".join(values)
+        self.handler.on_header({"History": self.state.headers["History"]})
+        return {"type": "annotation_hist", "value": values}
+
+    def b_header__history(self, children: List) -> Dict[str, Any]:
+        """处理历史块"""
+        valuess = [child.get("value") for child in children if isinstance(child, dict)]
+        return {"type": "history", "value": valuess}
+ 
+    # ========================== Label 处理 ==========================
     def LABEL(self, token: Token) -> Dict[str, Any]:
         """处理 LABEL token"""
         label_name = token.value.strip('"').strip("'").rstrip(':')
@@ -204,7 +240,7 @@ class STILParserTransformer(Transformer):
         """处理 V 语句, 如果包含微指令就不是v_stmt
         """
         if (len(children) == 0 and len(self.state.vec_data_list) == 0):
-            return {}
+            return {"Result": "Fail"}
         
         # 检查禁用指令
         if self.state.curr_instr and is_disabled(self.state.curr_instr):
@@ -215,7 +251,7 @@ class STILParserTransformer(Transformer):
                 f"机型不支持 '{self.state.curr_instr}' 指令，转换中止！！！", 
                 f"不支持的指令列表: {DISABLED_INSTRUCTIONS}"
             )
-            return {}
+            return {"Result": "Fail"}
         
         vec_data_list = []
         for child in children:
@@ -229,8 +265,13 @@ class STILParserTransformer(Transformer):
                 elif self.state.curr_instr:
                     # 其他指令通过映射表转换
                     self.state.curr_instr = map_instruction(self.state.curr_instr)
+                # 如果存在需要替换的Vectors，则替换，一般出现再Call和Macro指令的参数中
+                replace_signal_vectors = self.state.replace_vector_list.get(item.get("signal"), "")
+                vectors = item.get("data")
+                if replace_signal_vectors:
+                    vectors = replace_signal_vectors
                 # 6 元组：(signal, data, instr, param, label, vector_address)
-                vec_data_list.append((item.get("signal"), item.get("data"), 
+                vec_data_list.append((item.get("signal"), vectors, 
                     self.state.curr_instr, self.state.curr_param, 
                     self.state.curr_label, self.state.vector_address))
         if (len(vec_data_list) > 0):
@@ -239,15 +280,16 @@ class STILParserTransformer(Transformer):
         self.state.handle_curr()
         # 如果在循环中，就先不写入，等循环结束时，处理好循环语句再写入
         if self.state.loop_deep > 0:
-            return {}
+            return {"Result": "Fail"}
         if (len(self.state.vec_data_list) > 0):
             for vec_data in self.state.vec_data_list:
                 self.handler.on_vector(vec_data,
                     self.state.curr_instr,
                     self.state.curr_param)
                 self.state.vector_count += 1
-        self.state.reset()
-        return {}
+            self.state.reset()
+            return {"Result": "Pass"}
+        return {"Result": "Fail"}
     
     def _expand_vec_data(self, data: str) -> str:
         """展开向量数据中的重复指令"""
@@ -336,20 +378,17 @@ class STILParserTransformer(Transformer):
         }
     
     # ========================== MatchLoop 语句 ==========================
-    def KEYWORD_MATCH_LOOP(self, token: Token) -> Dict[str, Any]:
+    def KEYWORD_MATCH_LOOP(self, token: Token) -> None:
         """处理 MatchLoop 语句"""
         self.state.curr_instr = token.value.strip('"').strip("'").rstrip(':')
-        return {"type": "KEYWORD_MATCH_LOOP", "value": self.state.curr_instr}
     
-    def MATCHLOOP_COUNT(self, token: Token) -> Dict[str, Any]:
+    def MATCHLOOP_COUNT(self, token: Token) -> None:
         """处理 MatchLoop 语句"""
         self.state.curr_param = token.value.strip('"').strip("'").rstrip(':')
-        return {"type": "MATCHLOOP_COUNT", "value": self.state.curr_param}
     
-    def MATCHLOOP_INF(self, token: Token) -> Dict[str, Any]:
+    def MATCHLOOP_INF(self, token: Token) -> None:
         """处理 MatchLoop 语句"""
         self.state.curr_param = "0xFFFFFF"
-        return {"type": "MATCHLOOP_INF", "value": self.state.curr_param}
 
     def open_matchloop_block(self, children: List) -> Dict[str, Any]:
         """处理 MatchLoop 开始块"""
@@ -393,12 +432,14 @@ class STILParserTransformer(Transformer):
         return {
             "is_matchloop_end": True
         }
+
     def b_stmt(self, children: List) -> Dict[str, Any]:
         """处理 BreakPoint 语句"""
         self.close_matchloop_block(children)
         return {}
     
     # ========================== Call/Macro 语句 ==========================
+
     @v_args(meta=True)
     def b_procedures__procedure_def(self, meta, children: List) -> Dict[str, Any]:
         """根据索引获取到原始文本，然后当遇到Call的时候会获取文本并处理 Procedure 内容"""
@@ -420,7 +461,62 @@ class STILParserTransformer(Transformer):
             .strip(macrodef_name).strip().strip('{').strip('}'));
         self.state.macrodefs[macrodef_name] = macrodef_content;
         return {}
+
+    def call_vec_data_block(self, children: List) -> Dict[str, Any]:
+        """处理向量数据块"""
+        return self.vec_data_block(children)
+    
+    def call_vec_block(self, children: List) -> List[Dict[str, Any]]:
+        """处理 vec_block（收集所有 vec_data_block） """
+        return self.vec_block(children)
+
+    def macro_vec_data_block(self, children: List) -> Dict[str, Any]:
+        return self.vec_data_block(children)
+
+    def macro_vec_block(self, children: List) -> List[Dict[str, Any]]:
+        return self.vec_block(children)
+
+    def call_stmt(self, children: List) -> Dict[str, Any]:
+        """处理 Call 语句"""
+        # 通常只有一个
+        for child in children:
+            if isinstance(child, List):
+                for vec_data in child:
+                    self.state.replace_vector_list[vec_data.get("signal")] = vec_data.get("data")
+            else:
+                continue
+
+        tokens = [c.value for c in children if isinstance(c, Token)]
+        proc_name = tokens[1] if len(tokens) > 1 else ""
+        # 记录当前的WFT的名字
+        current_wft = self.state.current_wft
+        self._handle_children_pattern(proc_name, self.state.procedures)
+        # 处理完Call指令以后，要还原成原来的WFT
+        self.state.current_wft = current_wft
+        self.handler.on_waveform_change(current_wft)
+
+        # call结束后，恢复替换
+        self.state.replace_vector_list = {}
+        return {}
+    
+    def macro_stmt(self, children: List) -> Dict[str, Any]:
+        """处理 Macro 语句"""
+         # 通常只有一个
+        for child in children:
+            if isinstance(child, List):
+                for vec_data in child:
+                    self.state.replace_vector_list[vec_data.get("signal")] = vec_data.get("data")
+            else:
+                continue
         
+        
+        tokens = [c.value for c in children if isinstance(c, Token)]
+        macrodef_name = tokens[1] if len(tokens) > 1 else ""
+        self._handle_children_pattern(macrodef_name, self.state.macrodefs)
+        # macro结束后，恢复替换
+        self.state.replace_vector_list = {}
+        return {}
+
     def _handle_children_pattern(self, key: str, contents: Dict[str, str] = {}) -> None:
         """处理 Call 指令"""
         
@@ -449,25 +545,6 @@ class STILParserTransformer(Transformer):
             if self.state.debug:
                 print(f"警告：Procedure '{key}' 未找到")
 
-    def call_stmt(self, children: List) -> Dict[str, Any]:
-        """处理 Call 语句"""
-        tokens = [c.value for c in children if isinstance(c, Token)]
-        proc_name = tokens[1] if len(tokens) > 1 else ""
-        # 记录当前的WFT的名字
-        current_wft = self.state.current_wft
-        self._handle_children_pattern(proc_name, self.state.procedures)
-        # 处理完Call指令以后，要还原成原来的WFT
-        self.state.current_wft = current_wft
-        self.handler.on_waveform_change(current_wft)
-        return {}
-    
-    def macro_stmt(self, children: List) -> Dict[str, Any]:
-        """处理 Macro 语句"""
-        tokens = [c.value for c in children if isinstance(c, Token)]
-        macrodef_name = tokens[1] if len(tokens) > 1 else ""
-        self._handle_children_pattern(macrodef_name, self.state.macrodefs)
-        return {}
-
     # ========================== 其他微指令 ==========================
     def _handle_micro_instruction(self, instr: str, param: str = "") -> bool:
         """处理微指令的通用方法
@@ -493,6 +570,9 @@ class STILParserTransformer(Transformer):
          mapped_instr, param, self.state.vector_address)
         self.state.vector_address += 1
         self.state.vector_count += 1
+        self.state.curr_label = ""
+        self.state.curr_instr = ""
+        self.state.curr_param = ""
         return True
     
     def s_stmt(self, children: List) -> Dict[str, Any]:
@@ -512,6 +592,18 @@ class STILParserTransformer(Transformer):
         self._handle_micro_instruction("IddqTestPoint", "")
         return {}
     
+    def uk_stmt(self, children: List) -> Dict[str, Any]:
+        """处理 Unknown 语句"""
+        instr = ""
+        param = ""
+        if len(children) == 1 and isinstance(children[0], Token):
+            instr = children[0].value.strip()
+        elif len(children) == 2 and isinstance(children[0], Token) and isinstance(children[1], Token):
+            instr = children[0].value.strip()
+            param = children[1].value.strip()
+        self.handler.on_parse_error("Unknown 语句", children[0].value.strip())
+        self._handle_micro_instruction(instr, param)
+        return {}
     # ========================== 跳过的节点 ==========================
     def annotation(self, children: List) -> None:
         """跳过注释"""
@@ -531,7 +623,7 @@ class PatternStreamParserTransformer:
     使用 Lark Transformer 处理解析树，提供更声明式的编程方式。
     """
     
-    def __init__(self, stil_file: str, event_handler: PatternEventHandler, 
+    def __init__(self, stil_file: str, event_handler: STILEventHandler, 
                  debug: bool = False):
         """初始化解析器
         
@@ -545,6 +637,7 @@ class PatternStreamParserTransformer:
         self.debug = debug
         
         # 解析结果存储
+        
         self.signals: Dict[str, str] = {}  # {信号名: 信号类型}
         self.signal_groups: Dict[str, List[str]] = {}
         self.used_signals: List[str] = []
@@ -659,8 +752,7 @@ class PatternStreamParserTransformer:
             
             return pat_header
 
-    def read_stil_signals(self, print_log: bool = True,
-     progress_callback: Optional[Callable[[str], None]] = None) -> List[str]:
+    def read_stil_overview(self, print_log: bool = True) -> List[str]:
         """读取STIL文件，提取实际使用的信号列表"""
 
         # 先读取文件第一行，看是否包含 STIL space+ Double space+;字样(STIL 1.0;)
@@ -671,12 +763,10 @@ class PatternStreamParserTransformer:
                 self.handler.on_parse_error("选择的文件并非STIL文件，无法解析...")
                 return 0
                 
-        if progress_callback:
-            progress_callback("开始读取STIL文件...")
-        
+        self.handler.on_log("开始读取STIL文件...")
+
         if not os.path.exists(self.stil_file):
-            if progress_callback:
-                progress_callback(f"错误：文件不存在 - {self.stil_file}")
+            self.handler.on_parse_error("文件不存在 - {self.stil_file}")
             return []
         
         header_buffer = ""
@@ -686,12 +776,11 @@ class PatternStreamParserTransformer:
         
         try:
             with open(self.stil_file, 'r', encoding='utf-8') as f:
-                if progress_callback:
-                    progress_callback("正在解析文件头部（Signals/SignalGroups）...")
+                self.handler.on_log("正在解析文件头部（Signals/SignalGroups）...")
                 
                 for index, line in enumerate(f):
                     if index == 0 and not line.strip().startswith('STIL'):
-                        progress_callback("选择的文件并非STIL文件，无法解析...")
+                        self.handler.on_log("选择的文件并非STIL文件，无法解析...")
                         return []
                     
                     if self._stop_requested:
@@ -702,21 +791,22 @@ class PatternStreamParserTransformer:
                         from Semi_ATE.STIL.parsers.STILParser import STILParser
                         parser = STILParser(self.stil_file, propagate_positions=True, debug=self.debug)
                         tree = parser.parse_content(header_buffer)
-                        
+                        transformer = STILParserTransformer(self, self.handler, "", self.state)
+                        transformer.transform(tree) 
                         # 使用通用解析工具
                         from STILParserUtils import STILParserUtils
                         parser_utils = STILParserUtils(debug=self.debug)
                         self.signals = parser_utils.extract_signals(tree)
                         self.signal_groups = parser_utils.extract_signal_groups(tree)
                         self.timings = parser_utils.extract_timings(tree, self.signals,
-                             self.signal_groups, progress_callback)
+                             self.signal_groups, self.handler)
                         
-                        if progress_callback and print_log:
-                            progress_callback(f"找到 {len(self.signals)} 个信号定义")
-                            progress_callback(f"找到 {len(self.signal_groups)} 个信号组")
-                            progress_callback(f"找到 {len(self.timings)} 个波形表定义")
+                        if print_log:
+                            self.handler.on_log(f"找到 {len(self.signals)} 个信号定义")
+                            self.handler.on_log(f"找到 {len(self.signal_groups)} 个信号组")
+                            self.handler.on_log(f"找到 {len(self.timings)} 个波形表定义")
                             for wft_name, timing_list in self.timings.items():
-                                progress_callback(f"  波形表 [{wft_name}] 包含 {len(timing_list)} 条Timing定义:")
+                                self.handler.on_log(f"  波形表 [{wft_name}] 包含 {len(timing_list)} 条Timing定义:")
                                 for td in timing_list:
                                     map_wfc = td.vector_replacement;
                                     timing_str = f"    {td.signal}, {td.period}, {td.wfc}{("="+map_wfc) if map_wfc else ''}, {td.t1}, {td.e1}"
@@ -726,13 +816,13 @@ class PatternStreamParserTransformer:
                                         timing_str += f", {td.t3}, {td.e3}"
                                     if td.t4:
                                         timing_str += f", {td.t4}, {td.e4}"
-                                    progress_callback(timing_str)
+                                    self.handler.on_log(timing_str)
                         continue
                     
                     if not is_pattern:
                         header_buffer += line
                         continue
-                    
+
                     if is_pattern and not first_v_found:
                         try:
                             if line.strip().startswith('//'):
@@ -760,8 +850,7 @@ class PatternStreamParserTransformer:
                                 
                                 buffer_lines.clear()
                         except Exception as e:
-                            if progress_callback:
-                                progress_callback(f"读取文件失败: {e}")
+                            self.handler.on_parse_error(f"读取文件失败: {e}")
             
             self.used_signals = []
             for key in self.pat_header:
@@ -770,17 +859,21 @@ class PatternStreamParserTransformer:
                 elif key in self.signals:
                     self.used_signals.append(key)
             
-            if progress_callback and print_log:
-                progress_callback(f"STIL中使用了 {len(self.used_signals)} 个信号:")
+            if print_log:
+                self.handler.on_log(f"STIL中使用了 {len(self.used_signals)} 个信号:")
                 for i, sig in enumerate(self.used_signals):
-                    progress_callback(f"  {i+1}. {sig}")
+                    self.handler.on_log(f"  {i+1}. {sig}")
             
             return self.used_signals
-            
+        
+        except LarkError as e:
+            # 触发错误回调
+            self.handler.on_parse_error(f"读取文件失败: {e}")
         except Exception as e:
-            if progress_callback:
-                progress_callback(f"读取文件失败: {e}")
+            self.handler.on_parse_error(f"读取文件失败: {e}")
             return []
+
+            
 
     def parse_patterns(self) -> int:
         """流式解析 Pattern 块

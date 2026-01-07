@@ -200,8 +200,7 @@ class PATConvert:
             old_mapping = self.vct_converter.get_channel_mapping().copy()
         self.log("开始解析STIL文件，提取信号信息...")
         self.vct_converter = STILToVCTStream(stil_file, progress_callback=progress_callback)
-        
-
+    
         # 启动线程防止 UI 卡死
         used_signals = self.vct_converter.read_stil_signals(print_log=True)
         #threading.Thread(target=self.convert, args=(source, target), daemon=True).start()
@@ -225,11 +224,13 @@ class PATConvert:
         dialog = ChannelMappingDialog(self.root, used_signals, self.vct_converter, self.log)
         self.root.wait_window(dialog.top)
         
+        self.vct_converter.close()
+
         if dialog.result:
             self.log("通道映射配置完成！\n")
         else:
             self.log("通道映射配置已取消。")
-
+        
     # def select_target(self):
     #     folder_path = filedialog.askdirectory(title="Select Target Folder")
     #     if folder_path:
@@ -447,6 +448,8 @@ class PATConvert:
         convert_result = new_converter.convert()
         if convert_result == -1:
             self.log(f"{target_file_path} conversion stopped by user!")
+
+        self.current_parser.close()
 
     def convert(self, source, target):
         self.log(f"Starting conversion...")

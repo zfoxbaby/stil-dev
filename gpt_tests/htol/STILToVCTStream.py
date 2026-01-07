@@ -21,7 +21,8 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 from TimingData import TimingData
-from STILParserUtils import STILParserUtils, PatternEventHandler
+from STILParserUtils import STILParserUtils
+from STILEventHandler import STILEventHandler
 from htol.TimingFormatter import TimingFormatter
 from STILParserTransformer import PatternStreamParserTransformer, format_vct_instruction
 import Logger
@@ -34,7 +35,7 @@ except ImportError:
     from Semi_ATE.STIL.parsers.STILParser import STILParser
 
 
-class STILToVCTStream(PatternEventHandler):
+class STILToVCTStream(STILEventHandler):
     """Convert STIL files to VCT format - supports multiple DUTs with channel mapping."""
 
     def __init__(self, stil_file: str, target_file: str = "", 
@@ -72,6 +73,13 @@ class STILToVCTStream(PatternEventHandler):
         # 停止标志
         self._stop_requested = False
 
+    def __del__(self):
+        """析构时确保关闭文件流"""
+        self.close()
+
+    def close(self):
+        if self.output_file and not self.output_file.closed:
+            self.output_file.close()
 
     def stop(self) -> None:
         """请求停止转换"""
@@ -81,7 +89,7 @@ class STILToVCTStream(PatternEventHandler):
 
     def read_stil_signals(self, print_log: bool = True) -> List[str]:
         """读取STIL文件，提取实际使用的信号列表"""
-        used_signals = self.pattern_parser0.read_stil_signals(print_log=print_log, progress_callback=self.progress_callback)
+        used_signals = self.pattern_parser0.read_stil_overview(print_log=print_log)
         self.signals = self.pattern_parser0.get_signals()
         self.signal_groups = self.pattern_parser0.get_signal_groups()
         self.pat_header = self.pattern_parser0.get_pat_header()
@@ -553,15 +561,17 @@ class STILToVCTStream(PatternEventHandler):
         return line
     
     
-    # ========================== PatternEventHandler 回调实现 ==========================
+    # ========================== STILEventHandler 回调实现 ==========================
     
     def on_parse_start(self) -> None:
         """解析开始"""
         pass
     
-    def on_header(self, header: str) -> None:
+    def on_header(self, header: Dict[str, str]) -> None:
         """头信息"""
-        # self.output_file.write(f";  {header}\n")
+        # 不通过key获取Dict的第一个元素的value
+        #value = list(header.values())[0]
+        #self.output_file.write(f";  {value}\n")
 
     def on_waveform_change(self, wft_name: str) -> None:
         """波形表切换"""
@@ -615,6 +625,11 @@ class STILToVCTStream(PatternEventHandler):
         if self.progress_callback:
             self.progress_callback(f"Pattern 解析完成，共 {vector_count} 个向量")
     
+    def on_log(self, log: str) -> None:
+        """解析完成"""
+        if self.progress_callback:
+            self.progress_callback(log)
+
     def on_parse_error(self, error_msg: str, statement: str = "") -> None:
         """解析错误"""
         if self.progress_callback:

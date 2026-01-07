@@ -35,8 +35,9 @@ from dataclasses import dataclass
 from typing import List, Dict, Tuple
 from TimingData import TimingData
 from STILParserUtils import STILParserUtils
-from STILParserTransformer import PatternEventHandler, PatternStreamParserTransformer
+from STILParserTransformer import PatternStreamParserTransformer
 from STILParserTransformer import map_instruction
+from STILEventHandler import STILEventHandler
 import Logger
 
 try:  # Try importing the package as an installed dependency first
@@ -54,7 +55,7 @@ class PatternLine:
     instr: str    # 微指令
     wft: str      # 波形表名称
 
-class STILToGascStream(PatternEventHandler):
+class STILToGascStream(STILEventHandler):
     """Convert STIL files to a simple GASC-like format - STREAMING OPTIMIZED VERSION."""
 
     def __init__(self, stil_file, target_file, progress_callback=None, debug=False):
@@ -76,8 +77,8 @@ class STILToGascStream(PatternEventHandler):
         self.wft_pending = False
         self.pat_header: List[str] = []
         
-        # Streaming output（延迟打开）
-        self.output_file = None
+        # Streaming output - 在构造时打开文件流
+        self.output_file = open(target_file, "w", encoding="utf-8") if target_file else None
         self.header_written = False
         self.pattern_section_started = False
         
@@ -102,6 +103,10 @@ class STILToGascStream(PatternEventHandler):
         self.used_signals: List[str] = []   # Pattern 使用的信号列表
         self.signal_count = 0
     
+    def __del__(self):
+        """析构时确保关闭文件流"""
+        self.close()
+    
     def stop(self):
         """请求停止转换"""
         self._stop_requested = True
@@ -110,7 +115,7 @@ class STILToGascStream(PatternEventHandler):
         if self.progress_callback:
             self.progress_callback("用户请求停止转换...")
 
-    # ========================== PatternEventHandler 回调实现 ==========================
+    # ========================== STILEventHandler 回调实现 ==========================
     
     def on_parse_start(self) -> None:
         """解析开始"""
@@ -118,7 +123,7 @@ class STILToGascStream(PatternEventHandler):
             self.output_file.write("SPM_PATTERN (SCAN) {\n")
             self.pattern_section_started = True
     
-    def on_header(self, header: str) -> None:
+    def on_header(self, header: Dict[str, str]) -> None:
         """头信息"""
         #self.output_file.write(header + "\n")
 
@@ -190,6 +195,11 @@ class STILToGascStream(PatternEventHandler):
         if self.progress_callback:
             self.progress_callback(f"已处理 {vector_count:,} 个向量块，进度:100%...")
     
+    def on_log(self, log: str) -> None:
+        """解析完成"""
+        if self.progress_callback:
+            self.progress_callback(log)
+
     def on_parse_error(self, error_msg: str, statement: str = "") -> None:
         """解析错误"""
         self.progress_callback(f"解析错误: {error_msg}\n语句: {statement[:100]}...")
@@ -243,7 +253,7 @@ class STILToGascStream(PatternEventHandler):
                 self.progress_callback("开始提取信号/组/Timing内容...")
             
             self.pattern_parser = PatternStreamParserTransformer(self.stil_file, self, self.debug)
-            self.used_signals = self.pattern_parser.read_stil_signals(
+            self.used_signals = self.pattern_parser.read_stil_overview(
                 print_log=True, 
                 progress_callback=self.progress_callback
             )
@@ -268,8 +278,9 @@ class STILToGascStream(PatternEventHandler):
             if self.progress_callback:
                 self.progress_callback(f"Pattern 使用了 {self.signal_count} 个信号")
             
-            # 2. 打开输出文件，一次性写入所有头部信息
-            self.output_file = open(self.target_file, "w", encoding="utf-8")
+            # 2. 写入所有头部信息（文件流已在构造时打开）
+            if not self.output_file:
+                raise Exception("输出文件流未初始化")
             
             # 写入 Header（Pattern 使用的信号顺序）
             self.output_file.write("HEADER {\n")

@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List
 from typing import Optional, Callable
+from STILEventHandler import STILEventHandler
 
 @dataclass
 class TimingData:
@@ -58,7 +59,7 @@ class TimingData:
         return "".join(edges)
     
     def compute_timing_properties(self, strobe_wfcs: set = None, signal_type: str = "", 
-        progress_callback: Optional[Callable[[str], None]] = None) -> None:
+        handler: STILEventHandler = None) -> None:
         """计算并设置 Timing 属性
         
         根据信号类型、WFC 和边沿模式，自动设置：

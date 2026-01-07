@@ -17,7 +17,7 @@ from typing import List, Dict
 from lark import Tree, Token
 from typing import Optional, Callable
 from TimingData import TimingData
-
+from STILEventHandler import STILEventHandler
 
 try:
     from Semi_ATE.STIL.parsers.STILParser import STILParser
@@ -25,85 +25,6 @@ except ImportError:
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sys.path.insert(0, repo_root)
     from Semi_ATE.STIL.parsers.STILParser import STILParser
-
-class PatternEventHandler:
-    """Pattern 解析事件处理接口
-    
-    所有格式生成器（如 STILToVCTStream、STILToGascStream）都应继承此类
-    并实现相应的回调方法。
-    """
-    
-    def on_parse_start(self) -> None:
-        """解析开始时调用"""
-        pass
-    
-    def on_header(self, header: str) -> None:
-        """header """
-        pass
-
-    def on_waveform_change(self, wft_name: str) -> None:
-        """波形表切换时调用（W 语句）
-        
-        Args:
-            wft_name: 波形表名称
-        """
-        pass
-    
-    def on_label(self, label_name: str) -> None:
-        """遇到标签时调用
-        
-        Args:
-            label_name: 标签名称（已去除引号和冒号）
-        """
-        pass
-    
-    def on_vector(self, vec_data_list: List[Tuple[str, str]], 
-                  instr: str = "", param: str = "") -> None:
-        """遇到向量数据时调用
-        
-        Args:
-            vec_data_list: [(signal_or_group, wfc_string), ...] 列表
-            instr: 微指令名称（如 "", "Call", "Stop"）
-            param: 微指令参数
-        """
-        pass
-    
-    def on_procedure_call(self, proc_name: str, proc_content: str = "", vector_address: int = 0) -> None:
-        """Call 指令时调用
-        
-        Args:
-            proc_name: Procedure 名称
-            proc_content: Procedure 内容（如果找到）
-            vector_address: 向量地址
-        """
-        pass
-    
-    def on_micro_instruction(self, label: str, instr: str, param: str = "", vector_address: int = 0) -> None:
-        """其他微指令时调用（Stop, Goto, IddqTestPoint 等）
-        
-        Args:
-            instr: 微指令名称
-            param: 微指令参数
-            vector_address: 向量地址
-        """
-        pass
-    
-    def on_parse_complete(self, vector_count: int) -> None:
-        """解析完成时调用
-        
-        Args:
-            vector_count: 解析的向量总数
-        """
-        pass
-    
-    def on_parse_error(self, error_msg: str, statement: str = "") -> None:
-        """解析错误时调用
-        
-        Args:
-            error_msg: 错误信息
-            statement: 导致错误的语句
-        """
-        pass
 
 class STILParserUtils:
     """STIL解析通用工具类"""
@@ -182,8 +103,9 @@ class STILParserUtils:
     
     # ========================== Timing解析 ==========================
     
-    def extract_timings(self, tree: Tree, signal_types: Dict[str, str] = None, signal_groups: Dict[str, List[str]] = None,
-     progress_callback: Optional[Callable[[str], None]] = None) -> Dict[str, List[TimingData]]:
+    def extract_timings(self, tree: Tree, signal_types: Dict[str, str] = None,
+     signal_groups: Dict[str, List[str]] = None,
+     handler: STILEventHandler = None) -> Dict[str, List[TimingData]]:
         """从Timing块提取Timing信息
         
         Args:
@@ -232,7 +154,7 @@ class STILParserUtils:
                         if isinstance(subchild, Tree) and subchild.data == "b_timing__close_wfcs_block":
                             self._assign_timing_data(timing_data, time_values, edge_values)
                             timing_list = self._split_timing_data(timing_data, signal_types,
-                             signal_groups, progress_callback)
+                             signal_groups, handler)
                             timings[wft].extend(timing_list)
                             time_values.clear()
                             edge_values.clear()
@@ -246,7 +168,7 @@ class STILParserUtils:
     def _split_timing_data(self, timing_data: TimingData,
      signal_types: Dict[str, str] = None,
      signal_groups: Dict[str, List[str]] = None, 
-     progress_callback: Optional[Callable[[str], None]] = None) -> List[TimingData]:
+     handler: STILEventHandler = None) -> List[TimingData]:
         """拆分包含多个wfc字符的TimingData
         
         Args:
@@ -303,9 +225,9 @@ class STILParserUtils:
             signal_names = signal_groups.get(timing_data.signal, "")
             signal_name = signal_names[0];
         signal_type = signal_types.get(signal_name, "")
-        timing_data.compute_timing_properties(signal_type=signal_type, progress_callback=progress_callback)
+        timing_data.compute_timing_properties(signal_type=signal_type, handler=handler)
         for td in timing_data_list:
-            td.compute_timing_properties(signal_type=signal_type, progress_callback=progress_callback)
+            td.compute_timing_properties(signal_type=signal_type, handler=handler)
         
         return timing_data_list
     
