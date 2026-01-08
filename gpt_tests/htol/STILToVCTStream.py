@@ -597,7 +597,8 @@ class STILToVCTStream(STILEventHandler):
         # 进度更新（从 vec_data_list 获取 vector_address）
         if vec_data_list and len(vec_data_list[0]) > 5:
             vector_address = vec_data_list[0][5]
-            if self.progress_callback and vector_address % 1000 == 0:
+            update_interval = 2000 if vector_address <= 10000 else 5000
+            if self.progress_callback and vector_address % update_interval == 0:
                 self.progress_callback(f"已生成 {vector_address:,} 个向量...")
     
     def on_procedure_call(self, proc_name: str, proc_content: str = "", vector_address: int = 0) -> None:

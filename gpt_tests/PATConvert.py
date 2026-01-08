@@ -103,7 +103,12 @@ class PATConvert:
     def log(self, msg):
         """在进度框输出日志，自动管理文本长度避免内存溢出"""
         self.text_area.insert(tk.END, msg + "\n")
-        
+        # 检查滚动条是否在底部（或接近底部）
+        # yview() 返回 (起始位置, 结束位置)，如 (0.0, 1.0) 表示显示全部
+        # 如果结束位置 >= 0.99，认为在底部
+        scroll_position = self.text_area.yview()
+        at_bottom = scroll_position[1] >= 0.95
+
         # 更高效的文本长度管理：使用行数而不是字符数
         line_count = int(self.text_area.index('end-1c').split('.')[0])
         if line_count > 10000:  # 超过10000行时进行截断
@@ -111,7 +116,9 @@ class PATConvert:
             self.text_area.delete("1.0", "5001.0")
             self.text_area.insert("1.0", "... [日志已自动截断，显示最近 5000 行] ...\n")
         
-        self.text_area.see(tk.END)
+        # 只有在底部时才自动滚动
+        if at_bottom:
+            self.text_area.see(tk.END)
     
     def clear_log(self):
         """清空日志文本框"""

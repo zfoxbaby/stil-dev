@@ -51,17 +51,24 @@ class TimeUnitConverter:
             return (0.0, "ns")
         
         time_str = time_str.strip()
-        
-        # 正则匹配：数字（可带小数）+ 单位
-        match = re.match(r"^([+-]?\d*\.?\d+)\s*(ps|ns|us|ms|s)?$", time_str, re.IGNORECASE)
+        # 如果包含/符号，要根据/切分出来两个数字，然后前后相除，
+        # 正则匹配：数字（可带小数,支持科学计数法）+ 单位
+        match = re.match(r"^([+-]?\d*\.?\d+([eE][+-]?\d+)?)\s*(ps|ns|us|ms|s|pS|nS|uS|mS|S)?$", time_str, re.IGNORECASE)
         
         if not match:
             raise ValueError(f"无法解析时间字符串: {time_str}")
         
         value = float(match.group(1))
         unit = match.group(2).lower() if match.group(2) else "ns"
-        
         return (value, unit)
+
+        # # 写一个正则匹配 1/数字+单位MHz|KHz|Hz|mHz|uHz|nHz|pHz|fHz
+        # match = re.match(r"^1/\d*\.?\d+([MHz|KHz|Hz|mHz|uHz|nHz|pHz|fHz])?$", time_str, re.IGNORECASE)
+        # if match:
+        #     value = 1 / float(match.group(1))
+        #     unit = match.group(2).lower() if match.group(2) else "ns"
+        #     return (value, unit)
+        # 还要支持 15nS/3=5nS
     
     def to_ps(self, value: float, unit: str) -> float:
         """将任意单位转换为皮秒(ps)"""

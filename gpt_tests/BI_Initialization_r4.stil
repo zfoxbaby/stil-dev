@@ -1,4 +1,6 @@
 STIL 1.0; // 第一行必须STIL 1.0;开头
+// Block顺序规定：STIL - Header - Signals - SignalGroups - ScanStructures - Spec - Timing - Selector \
+// - PatternBurst - PatternExec - Procedures - MacroDefs - Pattern
 
 Header  {
 Title "tviibe2m_top_BI_Initialization_stil_gz" ;
@@ -19,18 +21,18 @@ Title "tviibe2m_top_BI_Initialization_stil_gz" ;
   }
 }
 
-//  Parameter File Keyword Settings 
-//   ALL_EXCLUDE_UNUSED     true ;
-
-// 信号解析
+// 暂不支持Include “../x.stil”;
+ 
+// Signals Block解析
 Signals {
   "p2_0_pad" In; "p23_7_pad" In; "vccd_0_pad" In; "vccd_1_pad" In; "vccd_2_pad" In; "vccd_3_pad" In; "vdda_pad" In; "vddd_0_pad" In; "vddd_1_pad" In; "vddd_2_pad" In; "vddd_3_pad" In; "vddio_0_pad" In; "vddio_1_pad" In; "vddio_10_pad" In; "vddio_11_pad" In; "vddio_12_pad" In; "vddio_13_pad" In; "vddio_14_pad" In; "vddio_15_pad" In; "vddio_16_pad" In; "vddio_17_pad" In; "vddio_18_pad" In; "vddio_19_pad" In; "vddio_2_pad" In; "vddio_3_pad" In; "vddio_4_pad" In; "vddio_5_pad" In; "vddio_6_pad" In; "vddio_7_pad" In; "vddio_8_pad" In; "vddq_pad" In; "vrefh0_pad" In; "vrefh1_pad" In; "vrefl0_pad" In; "vrefl1_pad" In; "vssa_pad" In; "vssd_0_pad" In; "vssd_2_pad" In; "vssd_3_pad" In; "vssio_0_pad" In; "vssio_1_pad" In; "vssio_10_pad" In; "vssio_11_pad" In; "vssio_12_pad" In; "vssio_13_pad" In; "vssio_14_pad" In; "vssio_15_pad" In; "vssio_16_pad" In; "vssio_17_pad" In; "vssio_18_pad" In; "vssio_19_pad" In; 
   "vssio_2_pad" In; "vssio_3_pad" In; "vssio_4_pad" In; "vssio_5_pad" In; "vssio_6_pad" In; "vssio_7_pad" In; "vssq_pad" In; "vsub_pad" In; "xres_pad" In; 
   
   "p23_5_pad" Out; "p23_6_pad" InOut; 
+  // 暂不支持ScanIn和ScanOut解析
 }
 
-// 信号组解析
+// SignalGroups Block解析
 SignalGroups {
   _pi_ = '"p2_0_pad" + "p23_7_pad" + "vccd_0_pad" + "vccd_1_pad" + "vccd_2_pad" + "vccd_3_pad" + "vdda_pad" + "vddd_0_pad" + "vddd_1_pad" + "vddd_2_pad" + "vddd_3_pad" + "vddio_0_pad" + "vddio_1_pad" + "vddio_10_pad" + "vddio_11_pad" + "vddio_12_pad" + "vddio_13_pad" + "vddio_14_pad" + "vddio_15_pad" + "vddio_16_pad" + "vddio_17_pad" + "vddio_18_pad" + "vddio_19_pad" + "vddio_2_pad" + "vddio_3_pad" + "vddio_4_pad" + "vddio_5_pad" + "vddio_6_pad" + "vddio_7_pad" + "vddio_8_pad" + "vddq_pad" + "vrefh0_pad" + "vrefh1_pad" + "vrefl0_pad" + "vrefl1_pad" + "vssa_pad" + "vssd_0_pad" + "vssd_2_pad" + "vssd_3_pad" + "vssio_0_pad" + "vssio_1_pad" + "vssio_10_pad" + "vssio_11_pad" + "vssio_12_pad" + "vssio_13_pad" + "vssio_14_pad" + 
        "vssio_15_pad" + "vssio_16_pad" + "vssio_17_pad" + "vssio_18_pad" + "vssio_19_pad" + "vssio_2_pad" + "vssio_3_pad" + "vssio_4_pad" + "vssio_5_pad" + "vssio_6_pad" + "vssio_7_pad" + "vssq_pad" + "vsub_pad" + "xres_pad"';
@@ -39,12 +41,12 @@ SignalGroups {
        "vssio_7_pad" + "vssq_pad" + "vsub_pad" + "xres_pad"';
   bidi_time_gen_0 = '"p23_5_pad"';
   bidi_time_gen_1 = '"p23_6_pad"';
-  // 暂不支持 bidi_time_gen_2 = '(_bidi_ - p23_5_pad)';
-  // 暂不支持 bidi_time_gen_2 = 'p23_5_pad[0..31]';
-  // Base HEX/DEC暂不支持，只能识别 \rn
+  // 暂不支持 bidi_time_gen_2 = '(_bidi_ - p23_5_pad)'解析;
+  // 暂不支持 bidi_time_gen_2 = 'p23_5_pad[0..31]'解析;
+  // 暂不支持Base HEX和OCT、\h、\d、\l、\w编码压缩和解码功能
 }
 
-// 时序解析
+// Timing Block解析
 Timing RETARGET_timing {
   WaveformTable tset__test_entry_entry_  {
     Period '100000ps' ;
@@ -56,8 +58,8 @@ Timing RETARGET_timing {
 	  // If DDD and DUD and not UUU and not UDU in Timing+Group/Signal DDD/DUD -> RZ
 	  // If DU/UD in Timing+Group/Signal  DU/UD -> DNRZ
 	  // 如果Edge数量不一致，则将单个Edge重复展开相等数量
-	  // 因为EdgeHTOL最多只有两个，如果Edge个数超过2个，取第二个和第三个
-	  // 单位只支持nS单位，支持把ps/pS，us/uS，ms/mS，s/S转换为nS
+	  // 因为HTOL的Edge最多只有两个，如果Edge个数超过2个，取第二个和第三个
+	  // 单位HTOL只支持nS单位，所以把ps/pS，us/uS，ms/mS，s/S会转换为nS，Timing的T值暂时不支持表达式写法
 	  //bidi_time_gen_0 { 01 { '0ps' D; '25000ps' D/U; '75000ps' U/D;}
       bidi_time_gen_0 { 01 { '0ps' U/D; '25000ps' D/U; '75000ps' U/D;}
               Z { '0ps' Z;}
@@ -88,7 +90,7 @@ PatternExec {
   PatternBurst scanpats;
 }
 
-// 支持宏解析，支持变量替换，执行完时序不恢复
+// MacroDefs Block宏解析，支持变量替换，执行完时序不恢复
 MacroDefs {
   macro_z0 {
 	macro_z_start: V {  _bidi_=11;
@@ -102,7 +104,7 @@ MacroDefs {
   }
 }
 
-// 支持子Pattern解析，支持变量替换，执行完时序恢复
+// Procedures Block子Pattern解析，支持变量替换，执行完时序恢复
 Procedures {
   proc0 {
     // call指令切换Timing
@@ -122,7 +124,7 @@ Procedures {
   }
 }
 
-// 支持pattern解析
+// 支持Pattern Block解析
 Pattern scan_test  {
   W tset__test_entry_entry_;
   // Pattern:0  Vector:1  TesterCycle:1
@@ -214,6 +216,9 @@ Pattern scan_test  {
 		   _pi_=001111111111111111111111111111111000000000000000000000000001;
 	  }
 	  Loop 300 {
+		  V {  _bidi_=00;
+			   _pi_=001111111111111111111111111111111000000000000000000000000001;
+		  }
 		  V {  _bidi_=00;
 			   _pi_=001111111111111111111111111111111000000000000000000000000001;
 		  }

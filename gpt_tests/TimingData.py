@@ -74,7 +74,7 @@ class TimingData:
         if self.parent is not None:
             return
         if strobe_wfcs is None:
-            strobe_wfcs = {'L', 'H', 'l', 'h'}
+            strobe_wfcs = {'L', 'H', 'X', 'T', 'V', 'l', 'h', 'x', 't', 'v'}
         
         # 优先根据信号类型判断：InOut类型信号认为是STROBE
         if signal_type:

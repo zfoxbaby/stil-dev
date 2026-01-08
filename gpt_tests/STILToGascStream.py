@@ -168,7 +168,7 @@ class STILToGascStream(STILEventHandler):
         self._write_vector_line(vec, formatted_instr, wft, vec_data_list[0][4].strip())
         
         # 进度更新
-        update_interval = 1000 if self.vector_count <= 10000 else 5000
+        update_interval = 2000 if self.vector_count <= 10000 else 5000
         if self.progress_callback and self.vector_count % update_interval == 0:
             progress = self.read_size / self.file_size * 100 if self.file_size > 0 else 100
             self.progress_callback(f"已处理 {self.vector_count:,} 个向量块, 进度:{progress:.1f}%...")
@@ -254,9 +254,7 @@ class STILToGascStream(STILEventHandler):
             
             self.pattern_parser = PatternStreamParserTransformer(self.stil_file, self, self.debug)
             self.used_signals = self.pattern_parser.read_stil_overview(
-                print_log=True, 
-                progress_callback=self.progress_callback
-            )
+                print_log=True)
             
             if self._stop_requested:
                 if self.progress_callback:
