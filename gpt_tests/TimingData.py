@@ -78,13 +78,13 @@ class TimingData:
         
         # 优先根据信号类型判断：InOut类型信号认为是STROBE
         if signal_type:
-            if signal_type == "InOut" or signal_type == "Out":
+            if signal_type == "Out":
                 self.is_strobe = 0
             elif signal_type == "In":
                 self.is_strobe = 1
             else:
                 self.is_strobe = -1
-        else:
+        if self.is_strobe == -1:
             # 向后兼容：根据WFC字符判断
             # 判断是否是比较沿，需要把wfc拆分成单个字符，然后到strobe_wfcs中找，
             # 如果有一个wfc的单个字符存在就是比较沿，否则是驱动沿
@@ -94,9 +94,9 @@ class TimingData:
                     break
             else:
                 self.is_strobe = 1
-        
+                
         if (self.is_strobe == -1 and self.parent is None):
-            progress_callback(f"Warning: {self.signal}:信号类型是{signal_type}，而不是InOut/Out/In，{self.wfc}无法正确计算边沿格式")
+            handler.on_parse_error(f"Warning: {self.signal}:信号类型是{signal_type}，而不是InOut/Out/In，{self.wfc}无法正确计算边沿格式")
             return
 
         # 计算边沿格式

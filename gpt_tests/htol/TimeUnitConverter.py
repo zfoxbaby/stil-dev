@@ -53,7 +53,7 @@ class TimeUnitConverter:
         time_str = time_str.strip()
         # 如果包含/符号，要根据/切分出来两个数字，然后前后相除，
         # 正则匹配：数字（可带小数,支持科学计数法）+ 单位
-        match = re.match(r"^([+-]?\d*\.?\d+([eE][+-]?\d+)?)\s*(ps|ns|us|ms|s|pS|nS|uS|mS|S)?$", time_str, re.IGNORECASE)
+        match = re.match(r"^([+-]?\d*\.?\d+(?:[eE][+-]?\d+)?)\s*(ps|ns|us|ms|s|pS|nS|uS|mS|S)?$", time_str, re.IGNORECASE)
         
         if not match:
             raise ValueError(f"无法解析时间字符串: {time_str}")

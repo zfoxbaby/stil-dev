@@ -272,6 +272,39 @@ class STILToVCTStream(STILEventHandler):
         
         return "\n".join(lines)
     
+    def generate_rex_file(self) -> None:
+        """生成 .rex 文件，包含 RRADR/Timing 信息
+        
+        文件名与 VCT 文件相同，扩展名为 .rex
+        """
+        if not self.target_file:
+            return
+        
+        # 生成 .rex 文件路径
+        rex_file = os.path.splitext(self.target_file)[0] + ".rex"
+        
+        # 确保 Timing 已格式化（这会填充 wft_to_rradr）
+        self.timing_formatter.set_signal_groups(self.signal_groups)
+        self.timing_formatter.set_channel_mapping(self.signal_to_channels)
+        
+        timing_content = self.timing_formatter.format_all_timings(self.timings)
+        
+        if not timing_content:
+            if self.progress_callback:
+                self.progress_callback("警告：没有 Timing 信息，跳过 .rex 文件生成")
+            return
+        
+        try:
+            with open(rex_file, 'w', encoding='utf-8') as f:
+                f.write(timing_content)
+                f.write("\n")
+            
+            if self.progress_callback:
+                self.progress_callback(f"REX文件生成完成: {rex_file}")
+        except Exception as e:
+            if self.progress_callback:
+                self.progress_callback(f"REX文件生成失败: {e}")
+    
     def generate_vct_warnings(self, warnings: List[str] = None) -> str:
         """生成VCT文件警告部分（第二部分）"""
         if not warnings:
@@ -710,6 +743,9 @@ class STILToVCTStream(STILEventHandler):
                 if self.progress_callback:
                     self.progress_callback("生成Timing定义...")
                 f.write(self.generate_vct_timing_section())
+                
+                # 生成 .rex 文件
+                self.generate_rex_file()
                 
                 if self._stop_requested:
                     return -1
