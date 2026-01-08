@@ -32,6 +32,7 @@ INSTRUCTION_MAPPING: Dict[str, str] = {
     "Return": "RET",
     "IddqTestPoint": "IDDQ",
     "IDDQTestPoint": "IDDQ",
+    "BreakPoint" : "BreakPoint",
     # 补充
     "Repeat": "RPT",
     "LoopEnd": "JNI",
@@ -109,6 +110,7 @@ class ParserState:
         self.vector_count = 0
         self.vector_address = 0  # 向量地址（用于生成自动 Label 和输出）
         self.loop_deep = 0
+        self.left_square_count = 0
         self.vec_data_list = []
         self.current_wft = ""
         self.curr_label = ""
@@ -240,7 +242,7 @@ class STILParserTransformer(Transformer):
         """处理 V 语句, 如果包含微指令就不是v_stmt
         """
         if (len(children) == 0 and len(self.state.vec_data_list) == 0):
-            return {"Result": "Fail"}
+            return {}
         
         # 检查禁用指令
         if self.state.curr_instr and is_disabled(self.state.curr_instr):
@@ -251,7 +253,7 @@ class STILParserTransformer(Transformer):
                 f"机型不支持 '{self.state.curr_instr}' 指令，转换中止！！！", 
                 f"不支持的指令列表: {DISABLED_INSTRUCTIONS}"
             )
-            return {"Result": "Fail"}
+            return {}
         
         vec_data_list = []
         for child in children:
@@ -279,8 +281,8 @@ class STILParserTransformer(Transformer):
             self.state.vector_address += 1  # 每个向量地址递增
         self.state.handle_curr()
         # 如果在循环中，就先不写入，等循环结束时，处理好循环语句再写入
-        if self.state.loop_deep > 0:
-            return {"Result": "Fail"}
+        if self.state.loop_deep > 0 or self.state.left_square_count > 0:
+            return {}
         if (len(self.state.vec_data_list) > 0):
             for vec_data in self.state.vec_data_list:
                 self.handler.on_vector(vec_data,
@@ -288,8 +290,8 @@ class STILParserTransformer(Transformer):
                     self.state.curr_param)
                 self.state.vector_count += 1
             self.state.reset()
-            return {"Result": "Pass"}
-        return {"Result": "Fail"}
+            return {"v-data": self.state.vec_data_list}
+        return {}
     
     def _expand_vec_data(self, data: str) -> str:
         """展开向量数据中的重复指令"""
@@ -333,6 +335,7 @@ class STILParserTransformer(Transformer):
         """处理 Loop 结束块"""
         self.state.loop_deep -= 1
         # 移除最后一个 vec_data_list
+        if len(self.state.vec_data_list) == 0: return {}
         vec_data_list = self.state.vec_data_list.pop()
         # 从self.state.vec_data_list中找到 LI{m} 对应的vec_data_list
         loop_label = ""
@@ -404,6 +407,7 @@ class STILParserTransformer(Transformer):
             return {}
         self.state.loop_deep -= 1;
         # 拿到最后一个V块，添加微指令为 MEND
+        if len(self.state.vec_data_list) == 0: return {}
         vec_data_list = self.state.vec_data_list.pop()
         new_list = []
         for vec_data in vec_data_list:
@@ -434,9 +438,42 @@ class STILParserTransformer(Transformer):
             "is_matchloop_end": True
         }
 
+    def open_breakpoit(self, children: List) -> Dict[str, Any]:
+        self.state.curr_instr = "BreakPoint"
+        self.state.curr_param = "S"
+        self.state.left_square_count += 1
+        pass
+
+    def close_breakpoit(self, children: List) -> None:
+        if len(self.state.vec_data_list) == 0: return {}
+        vec_data_list = self.state.vec_data_list.pop()
+        self.state.left_square_count -= 1
+        new_list = []
+        for vec_data in vec_data_list:
+            if map_instruction("BreakPoint") in vec_data[2]:
+                new_list.append((vec_data[0], vec_data[1],
+                map_instruction("BreakPoint"), "", vec_data[4], vec_data[5]))
+            elif vec_data[2].strip() != "":
+                # 包含微指令错误
+                self.handler.on_parse_error("BreakPoint 块中间包含微指令", "")
+            else:
+                new_list.append((vec_data[0], vec_data[1],
+                    map_instruction("BreakPoint"), "E", vec_data[4], vec_data[5]))
+
+        self.state.vec_data_list.append(new_list)
+        if self.state.left_square_count == 0:
+            if (len(self.state.vec_data_list) > 0):
+                for vec_data in self.state.vec_data_list:
+                    self.handler.on_vector(vec_data,
+                        self.state.curr_instr,
+                        self.state.curr_param)
+                    self.state.vector_count += 1
+                self.state.reset()
+
     def b_stmt(self, children: List) -> Dict[str, Any]:
         """处理 BreakPoint 语句"""
         self.close_matchloop_block(children)
+        # self._handle_micro_instruction("BreakPoint", "")
         return {}
     
     # ========================== Call/Macro 语句 ==========================
