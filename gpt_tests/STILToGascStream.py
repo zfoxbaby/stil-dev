@@ -132,6 +132,14 @@ class STILToGascStream(STILEventHandler):
         self.current_wft = wft_name
         self.wft_pending = True
     
+    def on_vector_start(self, pattern_burst_name: str) -> None:
+        """解析开始时调用"""
+        pass
+    
+    def on_annotation(self, annotation: str) -> None:
+        """注释时调用"""
+        pass
+    
     def on_label(self, label_name: str) -> None:
         """遇到标签 - GASC 格式将 label 附加在向量行后面，暂存"""
         pass  # GASC 不需要单独的 label 行

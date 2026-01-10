@@ -28,6 +28,18 @@ class STILEventHandler:
         """
         pass
     
+    def on_vector_start(self, pattern_burst_name: str) -> None:
+        """解析开始时调用"""
+        pass
+
+    def on_annotation(self, annotation: str) -> None:
+        """注释时调用
+        
+        Args:
+            annotation: 注释内容
+        """
+        pass
+
     def on_label(self, label_name: str) -> None:
         """遇到标签时调用
         

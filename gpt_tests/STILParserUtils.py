@@ -103,7 +103,7 @@ class STILParserUtils:
     
     # ========================== Timing解析 ==========================
     
-    def extract_timings(self, tree: Tree, signal_types: Dict[str, str] = None,
+    def extract_timings(self, children: List, signal_types: Dict[str, str] = None,
      signal_groups: Dict[str, List[str]] = None,
      handler: STILEventHandler = None) -> Dict[str, List[TimingData]]:
         """从Timing块提取Timing信息
@@ -120,49 +120,51 @@ class STILParserUtils:
         
         timings: Dict[str, List[TimingData]] = {}
         
-        for node in tree.find_data("timing_block"):
-            for wft_node in node.find_data("b_timing__waveform_table"):
-                wft = ""
-                period = ""
-                for child in wft_node.children:
-                    if isinstance(child, Token) and child.type == "b_timing__WFT_NAME":
-                        wft = child.value
-                    if (isinstance(child, Tree)
-                        and child.data == "b_timing__period"
-                        and len(child.children) == 2):
-                        if isinstance(child.children[1], Token):
-                            period = child.children[1].value.replace("'", "")
+        for child in children:
+            if not isinstance(child, Tree) or child.data != "b_timing__waveform_table":
+                continue
+            wft_node = child
+            wft = ""
+            period = ""
+            for child in wft_node.children:
+                if isinstance(child, Token) and child.type == "b_timing__WFT_NAME":
+                    wft = child.value
+                if (isinstance(child, Tree)
+                    and child.data == "b_timing__period"
+                    and len(child.children) == 2):
+                    if isinstance(child.children[1], Token):
+                        period = child.children[1].value.replace("'", "")
+            
+            timings.setdefault(wft, [])
+            
+            for child in wft_node.find_data("b_timing__waveforms_list"):
+                time_values: List[str] = []
+                edge_values: List[str] = []
+                timing_data = TimingData()
+                timing_data.wft = wft
+                timing_data.period = period
                 
-                timings.setdefault(wft, [])
-                
-                for child in wft_node.find_data("b_timing__waveforms_list"):
-                    time_values: List[str] = []
-                    edge_values: List[str] = []
-                    timing_data = TimingData()
-                    timing_data.wft = wft
-                    timing_data.period = period
-                    
-                    for subchild in child.children:
-                        if isinstance(subchild, Token) and subchild.type == "b_timing__WF_SIGREF_EXPR":
-                            timing_data.signal = subchild.value
-                        if isinstance(subchild, Token) and subchild.type == "b_timing__WFC_LIST":
-                            timing_data.wfc = subchild.value
-                        if (isinstance(subchild, Tree)
-                            and subchild.data == "b_timing__time_offset"
-                            and len(subchild.children) == 2):
-                            self._process_single_time_offset(subchild, timing_data, time_values, edge_values)
-                        if isinstance(subchild, Tree) and subchild.data == "b_timing__close_wfcs_block":
-                            self._assign_timing_data(timing_data, time_values, edge_values)
-                            timing_list = self._split_timing_data(timing_data, signal_types,
-                             signal_groups, handler)
-                            timings[wft].extend(timing_list)
-                            time_values.clear()
-                            edge_values.clear()
-                            parent_signal_name = timing_data.signal
-                            timing_data = TimingData()
-                            timing_data.wft = wft
-                            timing_data.signal = parent_signal_name
-                            timing_data.period = period
+                for subchild in child.children:
+                    if isinstance(subchild, Token) and subchild.type == "b_timing__WF_SIGREF_EXPR":
+                        timing_data.signal = subchild.value
+                    if isinstance(subchild, Token) and subchild.type == "b_timing__WFC_LIST":
+                        timing_data.wfc = subchild.value
+                    if (isinstance(subchild, Tree)
+                        and subchild.data == "b_timing__time_offset"
+                        and len(subchild.children) == 2):
+                        self._process_single_time_offset(subchild, timing_data, time_values, edge_values)
+                    if isinstance(subchild, Tree) and subchild.data == "b_timing__close_wfcs_block":
+                        self._assign_timing_data(timing_data, time_values, edge_values)
+                        timing_list = self._split_timing_data(timing_data, signal_types,
+                            signal_groups, handler)
+                        timings[wft].extend(timing_list)
+                        time_values.clear()
+                        edge_values.clear()
+                        parent_signal_name = timing_data.signal
+                        timing_data = TimingData()
+                        timing_data.wft = wft
+                        timing_data.signal = parent_signal_name
+                        timing_data.period = period
         return timings
     
     def _split_timing_data(self, timing_data: TimingData,
@@ -280,14 +282,3 @@ def get_default_utils() -> STILParserUtils:
     if _default_utils is None:
         _default_utils = STILParserUtils()
     return _default_utils
-
-
-# 便捷函数
-def extract_signals(tree: Tree) -> Dict[str, str]:
-    """提取信号和类型"""
-    return get_default_utils().extract_signals(tree)
-
-
-def extract_signal_groups(tree: Tree) -> Dict[str, List[str]]:
-    """提取信号组"""
-    return get_default_utils().extract_signal_groups(tree)

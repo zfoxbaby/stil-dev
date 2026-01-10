@@ -49,7 +49,6 @@ class STILToVCTStream(STILEventHandler):
         # 解析结果存储
         self.signals: Dict[str, str] = {}  # {信号名: 信号类型}
         self.signal_groups: Dict[str, List[str]] = {}
-        self.pat_header: List[str] = []
         # Timing数据
         self.timings: Dict[str, List[TimingData]] = {}
         
@@ -92,7 +91,7 @@ class STILToVCTStream(STILEventHandler):
         used_signals = self.pattern_parser0.read_stil_overview(print_log=print_log)
         self.signals = self.pattern_parser0.get_signals()
         self.signal_groups = self.pattern_parser0.get_signal_groups()
-        self.pat_header = self.pattern_parser0.get_pat_header()
+
         self.timings = self.pattern_parser0.get_timings()
         return used_signals
 
@@ -221,6 +220,10 @@ class STILToVCTStream(STILEventHandler):
             ";",
             ""
         ]
+
+        self.headers = self.pattern_parser0.get_headers()
+        for header_name, header_content in self.headers.items():
+            lines.append(f";  {header_name}: {header_content}")
         
         return "\n".join(lines)
     
@@ -550,15 +553,12 @@ class STILToVCTStream(STILEventHandler):
         # Loop 起始行，如果没有 Label 就用 vector_address 生成
         if not label_str and "LI" in instr_str:
             label_str = f"0x{vector_address:06X}"
-        # 输出 Label
-        if label_str:
-            self.output_file.write(f"{label_str}:\n")
         
         # 组装行（前缀51字符）
         # 格式: "  INSTR         % MR GTE RESERVED         SYN T C  CHANNELS ; 0xADDR"
         line = f"  {micro_instr}% {mrst_mcmp} {gtst_tena_tmem} {reserved} {sync} {toen} {cs}  {channel_str} ; 0x{vector_address:06X}"
         
-        return line
+        return [label_str, instr_str, line]
     
     def _format_micro_only_line(self, instr: str, param: str, rradr: int = 0, vector_address: int = 0) -> str:
         """格式化只有微指令的 Vector 行（无向量数据）
@@ -593,6 +593,48 @@ class STILToVCTStream(STILEventHandler):
         
         return line
     
+    def _generate_start_lines(self, pattern_burst_name: str) -> List[str]:
+        """生成 VCT 起始行（固定内容）
+        
+        Returns:
+            起始行列表
+        """
+        lines = []
+        
+        # 标志位区（固定值）
+        mrst_mcmp = ".."       # MRST + MCMP
+        gtst_tena_tmem = "..0" # GTST + TENA + TMEM
+        reserved = "." * 16   # RESERVED
+        sync = "..."          # SYNC
+        toen = "0"            # TOEN/RRADR
+        cs = "1"              # CS
+        
+        # 通道数据全为 "."
+        channel_str = "." * 256
+        
+        # 固定的起始行内容: (label, instr, param)
+        start_entries = [
+            ("Start:", "MSSA", ""),
+            ("CS_Loop:", "CALL", pattern_burst_name),
+            ("", "JNME", "CS_Loop"),
+            ("", "JF1", "Start"),
+            ("", "ADV", ""),
+            ("", "ADV", ""),
+            ("", "HALT", ""),
+            ("", "ADV", ""),
+        ]
+        
+        for label, instr, param in start_entries:
+            if label:
+                lines.append(label)
+            
+            # 格式化微指令（16字符宽度）
+            micro_instr = format_vct_instruction(instr, param)
+            line = f"  {micro_instr}% {mrst_mcmp} {gtst_tena_tmem} {reserved} {sync} {toen} {cs}  {channel_str}"
+            lines.append(line)
+        
+        return lines
+    
     
     # ========================== STILEventHandler 回调实现 ==========================
     
@@ -606,14 +648,30 @@ class STILToVCTStream(STILEventHandler):
         #value = list(header.values())[0]
         #self.output_file.write(f";  {value}\n")
 
+    def on_vector_start(self, pattern_burst_name: str) -> None:
+        """解析开始时调用"""
+        # 写入起始行
+        for line in self._generate_start_lines(pattern_burst_name):
+            self.output_file.write(line + "\n")
+        self.output_file.write("\n")
+        pass
+
     def on_waveform_change(self, wft_name: str) -> None:
         """波形表切换"""
         self.current_wft = wft_name
         self.wft_pending = True
     
+    def on_annotation(self, annotation: str) -> None:
+        """注释时调用
+        
+        Args:
+            annotation: 注释内容
+        """
+        self.output_file.write(f";{annotation}\n")
+
     def on_label(self, label_name: str) -> None:
         """遇到标签"""
-        # self.output_file.write(f"{label_name}:\n")
+        self.output_file.write(f"{label_name}:\n")
     
     def on_vector(self, vec_data_list: List[Tuple[str, str, str, str, str, int]], 
                   instr: str = "", param: str = "") -> None:
@@ -623,16 +681,17 @@ class STILToVCTStream(STILEventHandler):
             vec_data_list: [(signal, data, instr, param, label, vector_address), ...] 列表
         """
         rradr = self.timing_formatter.wft_to_rradr.get(self.current_wft, 0)
-        line = self._format_vector_line(vec_data_list, rradr)
-        self.output_file.write(line + "\n")
+        label_str, instr_str, line = self._format_vector_line(vec_data_list, rradr)
+        if "LI" in instr_str or "MBGN" in instr_str:
+            self.output_file.write(line + "\n")
+            if label_str:
+                self.output_file.write(f"{label_str}:\n")
+        else:
+            if label_str:
+                self.output_file.write(f"{label_str}:\n")
+            self.output_file.write(line + "\n")
+        self.output_file.flush()
         self.wft_pending = False
-        
-        # 进度更新（从 vec_data_list 获取 vector_address）
-        if vec_data_list and len(vec_data_list[0]) > 5:
-            vector_address = vec_data_list[0][5]
-            update_interval = 2000 if vector_address <= 10000 else 5000
-            if self.progress_callback and vector_address % update_interval == 0:
-                self.progress_callback(f"已生成 {vector_address:,} 个向量...")
     
     def on_procedure_call(self, proc_name: str, proc_content: str = "", vector_address: int = 0) -> None:
         """Call 指令 - 内容已在解析器中展开"""
@@ -647,13 +706,19 @@ class STILToVCTStream(STILEventHandler):
     
     def on_micro_instruction(self, label: str, instr: str, param: str = "", vector_address: int = 0) -> None:
         """其他微指令（Stop, Goto, IddqTestPoint 等）"""
-        if label:
-            self.output_file.write(f"{label}:\n")
         rradr = self.timing_formatter.wft_to_rradr.get(self.current_wft, 0)
         line = self._format_micro_only_line(instr, param, rradr, vector_address)
-        self.output_file.write(line + "\n")
         self.wft_pending = False
-    
+        if "LI" in instr or "MBGN" in instr:
+            self.output_file.write(line + "\n")
+            if label:
+                self.output_file.write(f"{label}:\n")
+        else:
+            if label:
+                self.output_file.write(f"{label}:\n")
+            self.output_file.write(line + "\n")
+        self.output_file.flush()
+
     def on_parse_complete(self, vector_count: int) -> None:
         """解析完成"""
         if self.progress_callback:
@@ -668,9 +733,9 @@ class STILToVCTStream(STILEventHandler):
         """解析错误"""
         if self.progress_callback:
             if statement:
-                self.progress_callback(f"解析错误: {error_msg}\n语句: {statement[:100]}...")
+                self.progress_callback(f"VEC:{self.pattern_parser0.state.vector_count}解析错误: {error_msg}\n语句: {statement[:100]}...")
             else:
-                self.progress_callback(f"解析错误: {error_msg}")
+                self.progress_callback(f"VEC:{self.pattern_parser0.state.vector_count}解析错误: {error_msg}")
         Logger.error(error_msg, statement)
     
     def generate_vct_vector_section(self, output_file) -> int:
@@ -703,10 +768,7 @@ class STILToVCTStream(STILEventHandler):
         # 写入标题行
         for line in self._generate_title_lines():
             output_file.write(line + "\n")
-        
-        # 写入起始行
-        output_file.write("VECTOR:\n")
-        
+
         # 初始化 Pattern 解析器并开始解析
         if self.progress_callback:
             self.progress_callback("开始解析 Pattern 数据...")

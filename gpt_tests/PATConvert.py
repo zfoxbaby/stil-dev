@@ -99,6 +99,9 @@ class PATConvert:
         self.text_area = scrolledtext.ScrolledText(frame_progress, wrap="word", width=60, height=15)
         self.text_area.config(width=450, height=175)  # 设置最小宽高
         self.text_area.pack(fill="both", expand=True)
+        
+        # 配置红色文本标签（用于错误消息）
+        self.text_area.tag_config("error", foreground="red")
 
     def log(self, msg):
         """在进度框输出日志，自动管理文本长度避免内存溢出"""
@@ -117,6 +120,18 @@ class PATConvert:
             self.text_area.insert("1.0", "... [日志已自动截断，显示最近 5000 行] ...\n")
         
         # 只有在底部时才自动滚动
+        if at_bottom:
+            self.text_area.see(tk.END)
+    
+    def log_error(self, msg):
+        """在进度框输出错误日志（红色字体）"""
+        self.text_area.insert(tk.END, msg + "\n", "error")
+        scroll_position = self.text_area.yview()
+        at_bottom = scroll_position[1] >= 0.95
+        line_count = int(self.text_area.index('end-1c').split('.')[0])
+        if line_count > 10000:
+            self.text_area.delete("1.0", "5001.0")
+            self.text_area.insert("1.0", "... [日志已自动截断，显示最近 5000 行] ...\n")
         if at_bottom:
             self.text_area.see(tk.END)
     
@@ -197,16 +212,12 @@ class PATConvert:
         # 创建或复用VCT转换器
         self.log("=" * 50)
         
-        def progress_callback(msg):
-            self.log(msg)
-            self.root.update_idletasks()
-        
         # 检查是否需要重新解析（源文件变化或首次使用）
         old_mapping = None
         if self.vct_converter != None:
             old_mapping = self.vct_converter.get_channel_mapping().copy()
         self.log("开始解析STIL文件，提取信号信息...")
-        self.vct_converter = STILToVCTStream(stil_file, progress_callback=progress_callback)
+        self.vct_converter = STILToVCTStream(stil_file, progress_callback=self.progress_callback)
     
         # 启动线程防止 UI 卡死
         used_signals = self.vct_converter.read_stil_signals(print_log=True)
@@ -257,11 +268,10 @@ class PATConvert:
             if not self.vct_converter or not self.vct_converter.get_channel_mapping():
                 messagebox.showerror("错误", "VCT模式需要先点击Option按钮配置通道映射！")
                 return
-            
-            # VCT模式：重新读取信号并自动重新映射
-            if not self._refresh_signal_mapping(source):
-                # 用户取消或刷新失败
-                return
+            # # VCT模式：重新读取信号并自动重新映射
+            # if not self._refresh_signal_mapping(source):
+            #     # 用户取消或刷新失败
+            #     return
 
         # 重置停止标志
         self._stop_requested = False
@@ -302,14 +312,10 @@ class PATConvert:
         old_mapping = self.vct_converter.get_channel_mapping().copy()
         old_signal_count = len(old_mapping)
         self.log(f"当前有 {old_signal_count} 个信号已映射")
-        
-        # 重新读取信号信息
-        def progress_callback(msg):
-            self.log(msg)
-            self.root.update_idletasks()
+    
         
         # 创建新的转换器实例并刷新信号
-        temp_converter = STILToVCTStream(stil_file, progress_callback=progress_callback, debug=self.vct_converter.debug)
+        temp_converter = STILToVCTStream(stil_file, progress_callback=self.progress_callback, debug=self.vct_converter.debug)
         result = temp_converter.refresh_signals_and_remap(old_mapping)
         
         if not result['success']:
@@ -369,6 +375,15 @@ class PATConvert:
             self.vct_converter.stop()
             self.log("用户点击Stop按钮，正在停止VCT转换...")
 
+    def progress_callback(self, message):
+        """Progress callback function with real-time vector counting"""
+        if "错误" in message or "失败" in message or "Error" in message or "警告" in message:
+            self.log_error(message)
+        else:
+            self.log(message)
+        # 强制UI更新，确保用户能看到进度
+        self.root.update_idletasks()
+
     def convert_file(self, source_file, target_folder):
         """转换单个文件，根据选择的格式使用不同的转换器"""
         source_file_name = os.path.basename(source_file)
@@ -387,21 +402,15 @@ class PATConvert:
         # Record start time
         start_time = datetime.now()
         self.log(f"Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        def progress_callback(message):
-            """Progress callback function with real-time vector counting"""
-            elapsed = datetime.now() - start_time
-            self.log(f"{message} (Elapsed: {elapsed.total_seconds():.1f}s)")
-            # 强制UI更新，确保用户能看到进度
-            self.root.update_idletasks()
+    
         
         try:
             if output_format == "VCT":
                 # VCT格式转换
-                self.convert_file_vct(source_file, target_file_path, progress_callback)
+                self.convert_file_vct(source_file, target_file_path, self.progress_callback)
             else:
                 # PAT格式转换（使用原有的STILToGascStream）
-                self.convert_file_pat(source_file, target_file_path, progress_callback)
+                self.convert_file_pat(source_file, target_file_path, self.progress_callback)
             
             # Calculate total time
             end_time = datetime.now()
