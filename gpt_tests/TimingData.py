@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List
 from typing import Optional, Callable
+from itertools import groupby
 from STILEventHandler import STILEventHandler
 
 @dataclass
@@ -12,6 +13,37 @@ class TimingData:
     - 最多4组时间/边沿对 (t1/e1 到 t4/e4)
     - 边沿类型和Vector转换信息
     """
+
+    wfcs_strobe = ["L", "H", "X", "T", "V", "l", "h", "x", "t", "v"]
+    wfcs_clock = ["D", "U", "N", "Z", "P"]
+    # 典型波形
+    wfcs_mappint = {
+        "D": ["0", "NORMAL"],
+        "U": ["1", "NORMAL"],
+
+        "UD": ["0", "DNRZ"],
+        "DU": ["1", "DNRZ"],
+        "UDU": ["N", ""],
+        "DUD": ["P", ""],
+
+        "N": ["0", ""],
+        "P": ["Q", ""],
+
+        "Z": ["X", ""],
+        "": ["X", ""],
+
+        "L": ["L", "C"],
+        "H": ["H", "C"],
+        
+        "X": ["X", "C"],
+        "T": ["T", "C"],
+        "V": ["V", "C"],
+        "l": ["l", "CC"],
+        "h": ["h", "C"],
+        "t": ["t", "C"],
+        "v": ["v", "C"],
+    }
+
     parent: 'TimingData' = None
     wft: str = ""          # 波形表名称
     period: str = ""       # 周期
@@ -28,36 +60,11 @@ class TimingData:
     twas: List = field(default_factory=list)  # 子TimingData列表
     
     # ========== 新增属性 ==========
-    is_strobe: int = -1       # 是否是比较沿（STROBE=0），否则是驱动沿（CLOCK=1）
+    is_strobe: int = -1       # 是否是比较沿（STROBE=0），否则是驱动沿（CLOCK=1），InOut类型信号认为是STROBE（STROBE=2）
     edge_format: str = ""         # 边沿格式: NRZ/DNRZ/RZ/RO
     vector_replacement: str = ""  # Vector生成时的替换字符: P(DUD)/N(UDU)/空(不替换)
     
-    def get_edge_count(self) -> int:
-        """获取有效边沿数量（时间和边沿都存在才算）"""
-        count = 0
-        if self.t1 and self.e1:
-            count += 1
-        if self.t2 and self.e2:
-            count += 1
-        if self.t3 and self.e3:
-            count += 1
-        if self.t4 and self.e4:
-            count += 1
-        return count
-    
-    def get_edge_pattern(self) -> str:
-        """获取边沿模式（如 DUD, UDU, DU, UD 等）"""
-        edges = []
-        if self.e1:
-            edges.append(self.e1.upper())
-        if self.e2:
-            edges.append(self.e2.upper())
-        if self.e3:
-            edges.append(self.e3.upper())
-        if self.e4:
-            edges.append(self.e4.upper())
-        return "".join(edges)
-    
+       
     def compute_timing_properties(self, strobe_wfcs: set = None, signal_type: str = "", 
         handler: STILEventHandler = None) -> None:
         """计算并设置 Timing 属性
@@ -73,74 +80,77 @@ class TimingData:
         """
         if self.parent is not None:
             return
-        if strobe_wfcs is None:
-            strobe_wfcs = {'L', 'H', 'X', 'T', 'V', 'l', 'h', 'x', 't', 'v'}
         
-        # 优先根据信号类型判断：InOut类型信号认为是STROBE
-        if signal_type:
-            if signal_type == "Out":
-                self.is_strobe = 0
-            elif signal_type == "In":
-                self.is_strobe = 1
-            else:
-                self.is_strobe = -1
-        if self.is_strobe == -1:
-            # 向后兼容：根据WFC字符判断
-            # 判断是否是比较沿，需要把wfc拆分成单个字符，然后到strobe_wfcs中找，
-            # 如果有一个wfc的单个字符存在就是比较沿，否则是驱动沿
-            for wfc in self.wfc:
-                if wfc in strobe_wfcs:
-                    self.is_strobe = 0
-                    break
-            else:
-                self.is_strobe = 1
-                
-        if (self.is_strobe == -1 and self.parent is None):
-            handler.on_parse_error(f"Warning: {self.signal}:信号类型是{signal_type}，而不是InOut/Out/In，{self.wfc}无法正确计算边沿格式")
-            return
+        self._wfc_replacement(signal_type, handler)
 
+       
+    def _wfc_replacement(self, signal_type: str = "", handler: STILEventHandler = None) -> None:
         # 计算边沿格式
         edge_count = self.get_edge_count()
-        pattern = self.get_edge_pattern()
-        
-        if edge_count <= 1:
-            self.edge_format = "NORMAL"
-            self.vector_replacement = ""
-        elif edge_count == 2:
-            if pattern in ("DU", "UD"):
-                self.edge_format = "DNRZ"
-            else:
-                self.edge_format = ""
-            self.vector_replacement = ""
 
+        if edge_count == 0:
+            return
+        
         # 如果是父节点，此时获取所有子节点，如果所有子节点中同时包含UDU子集和DUD子集，因为可能出现4个沿，
         # 就包含UDU的TimingData的vector_replacement变成N，包含DUD的TimingData的vector_replacement变成P，
         # 此时不需要edge_format。
         # 如果所有子节点中同时包含DDD和DUD，就把edge_format变成RZ, vector_replacement不需要填写，
         # 如果所有子节点中同时包含UUU和UDU，就把edge_format变成RO, vector_replacement不需要填写，
-        if edge_count >= 3 and self.parent is None:
-            hasUUU = False; hasDUD = False; hasDDD = False; hasUDU = False;
-            for td in self.twas:
-                child_edges = td.get_edge_pattern()
-                if child_edges.find("UUU") != -1:
-                    hasUUU = hasUUU | True
-                if child_edges.find("DUD") != -1:
-                    hasDUD = hasDUD | True
-                if child_edges.find("DDD") != -1:
-                    hasDDD = hasDDD | True
-                if child_edges.find("UDU") != -1:
-                    hasUDU = hasUDU | True
-            
-            if hasUUU and hasUDU and not hasDDD and not hasDUD:
-                self.edge_format = "RO"
-            elif hasDDD and hasDUD and not hasUUU and not hasUDU:
-                self.edge_format = "RZ"
+        for td in self.twas:
+            td_pattern = td.get_edge_pattern()
+            if td_pattern not in self.wfcs_mappint:
+                handler.on_parse_error(f"Warning: {td.signal}:{td.wfc}的边沿模式{td_pattern}无法正确计算边沿格式")
+                td.vector_replacement = "X"
+                continue
             else:
-                # 到这一步如果所有子节点没有Format,则初段DUD和UDU的就需要转换成P/N
-                for td in self.twas:
-                    child_edges = td.get_edge_pattern()
-                    if not td.edge_format:
-                        if child_edges.find("DUD") != -1:
-                            td.vector_replacement = "P"
-                        elif child_edges.find("UDU") != -1:
-                            td.vector_replacement = "N"
+                td.vector_replacement, type  = self.wfcs_mappint.get(td_pattern, [td.wfc, ""])
+                # 优先根据信号类型判断：InOut类型信号认为是STROBE
+                if signal_type:
+                    if signal_type == "Out":
+                        td.is_strobe = 0
+                    elif signal_type == "In":
+                        td.is_strobe = 1
+                    elif signal_type == "InOut":
+                        td.is_strobe = 2
+                    else:
+                        td.is_strobe = -1
+                if td.is_strobe == -1:
+                    td.is_strobe = 0 if type == "C" else 1
+
+    def get_edge_count(self) -> int:
+            """获取有效边沿数量（时间和边沿都存在才算）"""
+            count = 0
+            if self.t1 and self.e1:
+                count += 1
+            if self.t2 and self.e2:
+                count += 1
+            if self.t3 and self.e3:
+                count += 1
+            if self.t4 and self.e4:
+                count += 1
+            return count
+    
+    def get_edge_pattern(self) -> str:
+        """获取边沿模式（如 DUD, UDU, DU, UD 等）"""
+        edges = []
+        if self.e1:
+            edges.append(self.e1.upper())
+        if self.e2:
+            edges.append(self.e2.upper())
+        if self.e3:
+            edges.append(self.e3.upper())
+        if self.e4:
+            edges.append(self.e4.upper())
+        pattern = self._dedup_consecutive("".join(edges))
+        return pattern
+
+    def _dedup_consecutive(self, s: str) -> str:
+        pattern = s.replace("N", "D")
+        result = ''.join(k for k, _ in groupby(pattern))
+        # 说明存在两个及以上的不相同的Edge
+        if len(result) > 1:
+            # 保持可以忽略
+            result = result.replace("P", "")
+            result = result.replace("X", "")
+            result = result.replace("Z", "")
+        return result

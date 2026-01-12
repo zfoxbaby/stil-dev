@@ -43,6 +43,7 @@ class STILToVCTStream(STILEventHandler):
         """初始化VCT转换器"""
         self.stil_file = stil_file
         self.target_file = target_file
+        self.file_size = -1
         self.progress_callback = progress_callback
         self.debug = debug
         
@@ -262,10 +263,7 @@ class STILToVCTStream(STILEventHandler):
         
         if timing_content:
             lines.append(";    Converted timing maybe not correct, Please check the timing definitions:")
-            lines.append(";    If UDU and DUD in Timing+Group/Signal  DUD/UDU -> P/N")
-            lines.append(";    If UUU and UDU and not DDD and not DUD in Timing+Group/Signal UUU/UDU -> RO")
-            lines.append(";    If DDD and DUD and not UUU and not UDU in Timing+Group/Signal DDD/DUD -> RZ")
-            lines.append(";    If DU/UD in Timing+Group/Signal  DU/UD -> DNRZ")
+            lines.append(";    DUD/UDU -> P/N; UD/DU -> 01 DNRZ; D -> 0; U -> 1; P -> Q; Other -> Other")
             lines.append(";")
             timing_lines = timing_content.split("\n")
             prefixed_lines = [";  " + line for line in timing_lines]
@@ -690,8 +688,19 @@ class STILToVCTStream(STILEventHandler):
             if label_str:
                 self.output_file.write(f"{label_str}:\n")
             self.output_file.write(line + "\n")
-        self.output_file.flush()
+
         self.wft_pending = False
+
+        # 进度更新
+        vector_count = self.pattern_parser0.state.vector_count
+        read_size = self.pattern_parser0.state.read_size
+        update_interval = 2000 if vector_count <= 10000 else 5000
+        if self.progress_callback and vector_count % update_interval == 0:
+            progress = read_size / self.file_size * 100 if self.file_size > 0 else 100
+            self.progress_callback(f"已处理 {vector_count:,} 个向量块, 进度:{progress:.1f}%...")
+           
+        if vector_count % 10000 == 0:
+             self.output_file.flush()
     
     def on_procedure_call(self, proc_name: str, proc_content: str = "", vector_address: int = 0) -> None:
         """Call 指令 - 内容已在解析器中展开"""
@@ -722,7 +731,7 @@ class STILToVCTStream(STILEventHandler):
     def on_parse_complete(self, vector_count: int) -> None:
         """解析完成"""
         if self.progress_callback:
-            self.progress_callback(f"Pattern 解析完成，共 {vector_count} 个向量")
+            self.progress_callback(f"Pattern 解析完成，共 {vector_count} 个向量，进度100%")
     
     def on_log(self, log: str) -> None:
         """解析完成"""
@@ -759,7 +768,6 @@ class STILToVCTStream(STILEventHandler):
         
         # 写入 #VECTOR 头
         output_file.write("#VECTOR\n")
-        output_file.write("  ORG 0\n")
         
         # 写入信号名头部
         for line in self._generate_signal_header_lines():
@@ -789,6 +797,9 @@ class STILToVCTStream(STILEventHandler):
         """
         if self.progress_callback:
             self.progress_callback("开始生成VCT文件...")
+                # 获取文件大小
+        self.file_size = os.path.getsize(self.stil_file) if os.path.exists(self.stil_file) else 0
+        size_mb = self.file_size / (1024 * 1024)
         
         try:
             with open(self.target_file, 'w', encoding='utf-8') as f:
@@ -840,6 +851,8 @@ class STILToVCTStream(STILEventHandler):
             
         except Exception as e:
             if self.progress_callback:
+                # 堆栈信息也打印到日志里面
+                Logger.error(f"VCT文件生成失败: {e}", exc_info=True)
                 self.progress_callback(f"VCT文件生成失败: {e}")
             return -1
 

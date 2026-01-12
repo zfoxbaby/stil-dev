@@ -187,14 +187,26 @@ class TimingFormatter:
             
             edge1, edge2 = self.extract_middle_edges(td)
             
-            # 使用 TimingData 的属性判断
-            if td.is_strobe:
+            # 如果td.is_strobe == 2，则认为既是strobe又是clock
+            if td.is_strobe == 2:
+                if signal not in processed_signals_clock:
+                    processed_signals_clock.add(signal)
+                    channel_str = self.format_channels(channels)
+                    edge_str = self.format_edges(edge1, edge2)
+                    clock_lines.append(f"CLOCK{rradr} {channel_str} {edge_str} {td.edge_format}")
                 if signal not in processed_signals_strobe:
                     processed_signals_strobe.add(signal)
                     channel_str = self.format_channels(channels)
                     edge_str = self.format_edges(edge1, edge2)
                     strobe_lines.append(f"STROBE{rradr} {channel_str} {edge_str}")
-            else:
+            # 使用 TimingData 的属性判断
+            elif td.is_strobe == 0:
+                if signal not in processed_signals_strobe:
+                    processed_signals_strobe.add(signal)
+                    channel_str = self.format_channels(channels)
+                    edge_str = self.format_edges(edge1, edge2)
+                    strobe_lines.append(f"STROBE{rradr} {channel_str} {edge_str}")
+            elif td.is_strobe == 1:
                 if signal not in processed_signals_clock:
                     processed_signals_clock.add(signal)
                     channel_str = self.format_channels(channels)

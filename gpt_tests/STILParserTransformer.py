@@ -111,6 +111,7 @@ class ParserState:
         self.multi_parser: Optional[Lark] = None
         # 所有行数
         self.vector_count = 0
+        self.read_size = 0
         # 当前地址行，每行加1
         self.vector_address = 0  # 向量地址（用于生成自动 Label 和输出）
         # loop嵌套层数计数器
@@ -240,6 +241,9 @@ class STILParserTransformer(Transformer):
         self.state = parser_state
         self.text_original = text_original
         self.start_index = start_index
+
+        self._REPEAT_PATTERN = re.compile(r'\\r(\d+)\s+([^\s\\]+)')
+        self._WHITESPACE_PATTERN = re.compile(r'\s+')
 
     # ========================== Header 处理 ==========================
     def b_header__TITLE_STRING(self, token: Token) -> None:
@@ -486,7 +490,8 @@ class STILParserTransformer(Transformer):
     def _expand_vec_data(self, data: str) -> str:
         """展开向量数据中的重复指令"""
         #f \r2 f\w0000 0101
-        pattern = r'\\r(\d+)\s+([^\s\\]+)'
+        # 使用 _REPEAT_PATTERN代替pattern
+        pattern = self._REPEAT_PATTERN
         
         def replace_repeat(match):
             repeat_count = int(match.group(1))
@@ -495,12 +500,13 @@ class STILParserTransformer(Transformer):
         
         result = data
         while '\\r' in result:
-            new_result = re.sub(pattern, replace_repeat, result)
+            # 使用 _REPEAT_PATTERN.sub(replace_repeat, result)代替re.sub(pattern, replace_repeat, result)
+            new_result = self._REPEAT_PATTERN.sub(replace_repeat, result)
             if new_result == result:
                 break
             result = new_result
         
-        result = re.sub(r'\s+', '', result)
+        result = self._WHITESPACE_PATTERN.sub('', result)
         return result
     
     # ========================== Loop 语句 ==========================
@@ -512,6 +518,8 @@ class STILParserTransformer(Transformer):
     def LOOP_COUNT(self, token: Token) -> Dict[str, Any]:
         """处理 Loop 计数"""
         self.state.curr_param = token.value.strip('"').strip("'").rstrip(':')
+        # 减一
+        self.state.curr_param = int(self.state.curr_param) - 1
         return {"type": "LOOP_COUNT", "value": self.state.curr_param}
     
     def open_loop_block(self, children: List) -> Dict[str, Any]:
@@ -1057,11 +1065,15 @@ class STILParserTransformer(Transformer):
     # ========================== 跳过的节点 ==========================
     def annotation(self, children: List) -> None:
         """跳过注释"""
+        # TODO
+        self.state.flush_pending_vector(self.handler)
+
         ann = "";
         for child in children:
             if isinstance(child, Token) and child.type == "ANN_TEXT":
                 ann += child.value + " "
         self.handler.on_annotation(ann)
+
         return None
     
     def open_pattern_block(self, children: List) -> None:
@@ -1295,8 +1307,9 @@ class PatternStreamParserTransformer:
         transformer = STILParserTransformer(self, self.handler, "", 0, self.state)
         pattern_parser_list = []
         try:
-            with open(self.stil_file, 'r', encoding='utf-8') as f:
+            with open(self.stil_file, 'r', encoding='utf-8', buffering=1024*1024) as f:
                 for line in f:
+                    self.state.read_size += len(line.encode('utf-8'))
                     if self._stop_requested:
                         break                
 
@@ -1310,10 +1323,10 @@ class PatternStreamParserTransformer:
                         if (pattern_burst_name in
                          self.state.pattern_burst_dict[self.state.pattern_burst_name]["PatList"]):
                             is_pattern = True
-                            self.handler.on_label(pattern_burst_name)
                             if len(pattern_parser_list) == 0:
                                 self.handler.on_vector_start(pattern_burst_name)
                                 pattern_parser_list.append(pattern_burst_name)
+                            self.handler.on_label(pattern_burst_name)
                             continue
                         else:
                             is_pattern = False

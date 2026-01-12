@@ -265,9 +265,24 @@ class PATConvert:
         
         # 如果是VCT模式，检查是否已配置通道映射
         if self.output_format_var.get() == "VCT":
+            stil_file = source
+            if self.source_type.get() == "Standard":
+                stil_files = [f for f in os.listdir(source) if f.endswith(".stil")]
+                if not stil_files:
+                    messagebox.showerror("错误", "文件夹中没有找到.stil文件: {source}")
+                    return
+                stil_file = os.path.join(source, stil_files[0])
             if not self.vct_converter or not self.vct_converter.get_channel_mapping():
-                messagebox.showerror("错误", "VCT模式需要先点击Option按钮配置通道映射！")
-                return
+                # 弹出对话框，如果点击确定将从0开始自动映射通道. 点击X退出
+                result = messagebox.askyesno("提示", "VCT模式需要先点击Option按钮配置通道映射！"+
+                "\n如果点击确定将从0开始自动映射通道. \n点击X退出")
+                if result:
+                    self.vct_converter = STILToVCTStream(stil_file, progress_callback=self.progress_callback)
+                    used_signals = self.vct_converter.read_stil_signals(print_log=True)
+                    mapping = {signal: [i] for i, signal in enumerate(used_signals)}
+                    self.vct_converter.set_channel_mapping(mapping)
+                else:
+                    return
             # # VCT模式：重新读取信号并自动重新映射
             # if not self._refresh_signal_mapping(source):
             #     # 用户取消或刷新失败
