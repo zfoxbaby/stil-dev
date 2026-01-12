@@ -434,6 +434,7 @@ class PATConvert:
             self.log(f"Total conversion time: {total_time.total_seconds():.2f} seconds")
             self.log(f"{target_file_path} conversion successfully!")
         except Exception as e:
+            Logger.error(f"文件转换失败: {e}", exc_info=True)
             end_time = datetime.now()
             total_time = end_time - start_time
             self.log(f"Conversion failed after {total_time.total_seconds():.2f} seconds: {str(e)}")
@@ -513,6 +514,7 @@ class PATConvert:
                     try:
                         self.convert_file(source_file, target)
                     except Exception as e:
+                        Logger.error(f"文件 {filename} 转换失败: {e}", exc_info=True)
                         self.log(f"文件 {filename} 转换失败: {str(e)}")
                         # 继续转换下一个文件
                         continue

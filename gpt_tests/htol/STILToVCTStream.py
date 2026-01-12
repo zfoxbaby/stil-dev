@@ -119,6 +119,7 @@ class STILToVCTStream(STILEventHandler):
                         if self.progress_callback:
                             self.progress_callback(f"警告：通道号 {channel} 超出范围(0-255)，已忽略")
                 except ValueError:
+                    Logger.warning(f"警告：'{part}' 不是有效的数字，已忽略")
                     if self.progress_callback:
                         self.progress_callback(f"警告：'{part}' 不是有效的数字，已忽略")
         
@@ -194,6 +195,7 @@ class STILToVCTStream(STILEventHandler):
             return result
             
         except Exception as e:
+            Logger.error(f"刷新信号映射失败: {e}", exc_info=True)
             result['error'] = str(e)
             return result
 
@@ -303,6 +305,7 @@ class STILToVCTStream(STILEventHandler):
             if self.progress_callback:
                 self.progress_callback(f"REX文件生成完成: {rex_file}")
         except Exception as e:
+            Logger.error(f"REX文件生成失败: {e}", exc_info=True)
             if self.progress_callback:
                 self.progress_callback(f"REX文件生成失败: {e}")
     

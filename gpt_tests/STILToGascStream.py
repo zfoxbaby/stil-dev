@@ -338,6 +338,7 @@ class STILToGascStream(STILEventHandler):
                 return 0
         
         except Exception as e:
+            Logger.error(f"GASC转换失败: {e}", exc_info=True)
             if self.progress_callback:
                 self.progress_callback(f"转换失败: {e}")
             if self.debug:

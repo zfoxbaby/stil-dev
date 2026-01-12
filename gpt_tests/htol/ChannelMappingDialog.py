@@ -9,8 +9,15 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
+import sys
 import csv
 from typing import List, Dict, Tuple, Callable, Optional
+
+# 添加父目录到路径以导入 Logger
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+import Logger
 
 try:
     from tksheet import Sheet
@@ -371,6 +378,7 @@ class ChannelMappingDialog:
             # )
 
         except Exception as e:
+            Logger.error(f"通道映射导入失败: {e}", exc_info=True)
             messagebox.showerror("导入失败", f"导入失败: {e}", parent=self.top)
     
     def on_export(self):
@@ -464,5 +472,6 @@ class ChannelMappingDialog:
             )
             
         except Exception as e:
+            Logger.error(f"通道映射导出失败: {e}", exc_info=True)
             messagebox.showerror("导出失败", f"导出失败: {e}", parent=self.top)
 

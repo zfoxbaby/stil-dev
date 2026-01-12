@@ -2,13 +2,14 @@
 
 提供统一的日志记录功能，支持：
 - 控制台输出
-- 文件输出
+- 文件输出（自动轮转，超过 5MB 创建新文件）
 - 不同日志级别
 - 与 GUI progress_callback 集成
 - 全局异常捕获
 """
 
 import logging
+import logging.handlers
 import os
 import sys
 import traceback
@@ -76,7 +77,8 @@ class STILLogger:
             console_handler.setFormatter(formatter)
             self.logger.addHandler(console_handler)
         
-        # 文件 Handler
+        # 文件 Handler（使用 RotatingFileHandler 实现日志轮转）
+        # 日志文件超过 5MB 时自动创建新文件，最多保留 5 个备份
         if file_output:
             if log_file is None:
                 # 自动生成日志文件名
@@ -84,7 +86,14 @@ class STILLogger:
                 log_file = os.path.join(log_dir, f"stil_convert_{datetime.now().strftime('%Y%m%d')}.log")
             
             try:
-                file_handler = logging.FileHandler(log_file, encoding='utf-8')
+                # RotatingFileHandler: 最大 5MB，保留 5 个备份文件
+                # 文件命名: xxx.log, xxx.log.1, xxx.log.2, ..., xxx.log.5
+                file_handler = logging.handlers.RotatingFileHandler(
+                    log_file, 
+                    maxBytes=5 * 1024 * 1024,  # 5MB
+                    backupCount=5,             # 保留 5 个备份
+                    encoding='utf-8'
+                )
                 file_handler.setLevel(level)
                 file_handler.setFormatter(formatter)
                 self.logger.addHandler(file_handler)

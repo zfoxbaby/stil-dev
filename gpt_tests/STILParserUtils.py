@@ -12,8 +12,10 @@ from __future__ import annotations
 
 from ast import Tuple
 import os
+from pydoc import describe
 import sys
 from typing import List, Dict
+from warnings import deprecated
 from lark import Tree, Token
 from typing import Optional, Callable
 from TimingData import TimingData
@@ -39,6 +41,7 @@ class STILParserUtils:
     
     # ========================== 信号提取 ==========================
     
+    @deprecated("extract_signals is deprecated, use STILParserTransformer")
     def extract_signals(self, tree: Tree) -> Dict[str, str]:
         """从Signals块提取信号名称和类型
         
@@ -66,6 +69,7 @@ class STILParserUtils:
         
         return signals
     
+    @deprecated("extract_signal_groups is deprecated, use STILParserTransformer")
     def extract_signal_groups(self, tree: Tree) -> Dict[str, List[str]]:
         """从SignalGroups块提取信号组映射关系
         
@@ -270,15 +274,3 @@ class STILParserUtils:
             if hasattr(timing_data, time_attr) and hasattr(timing_data, edge_attr):
                 setattr(timing_data, time_attr, times[i].replace("'", ""))
                 setattr(timing_data, edge_attr, edges[i])
-
-
-# 全局默认实例
-_default_utils: STILParserUtils = None
-
-
-def get_default_utils() -> STILParserUtils:
-    """获取全局默认工具实例"""
-    global _default_utils
-    if _default_utils is None:
-        _default_utils = STILParserUtils()
-    return _default_utils

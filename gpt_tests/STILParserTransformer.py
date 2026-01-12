@@ -18,6 +18,7 @@ from typing import List, Dict, Tuple, Optional, Any
 from lark import Lark, Tree, Token, Transformer, LarkError, v_args
 from typing import Callable
 from STILParserUtils import STILParserUtils
+import Logger
 
 # 复用原有的 PatternEventHandler
 from STILEventHandler import STILEventHandler
@@ -976,6 +977,7 @@ class STILParserTransformer(Transformer):
                 transformer.state.vector_count
                 # self.state.vector_count += 
             except LarkError as e:
+                Logger.error(f"Procedure '{key}' 解析失败: {e}", exc_info=True)
                 self.handler.on_parse_error(f"Procedure '{key}' 解析失败: {e}", "")
                 self.handler.on_procedure_call(key, "", self.state.vector_address)
                 self.state.vector_address += 1
@@ -1154,6 +1156,7 @@ class PatternStreamParserTransformer:
             )
             self.handler.on_log("Pattern 语句解析器初始化成功 (1.0 版本)")
         except Exception as e:
+            Logger.error(f"Pattern 语句解析器初始化失败: {e}", exc_info=True)
             self.handler.on_log(f"Pattern 语句解析器初始化失败: {e}")
             raise
     
@@ -1262,6 +1265,7 @@ class PatternStreamParserTransformer:
                                 
                                 buffer_lines.clear()
                         except Exception as e:
+                            Logger.error(f"读取文件失败: {e}", exc_info=True)
                             self.handler.on_parse_error(f"读取文件失败: {e}")
             
             self.used_signals = []
@@ -1280,8 +1284,10 @@ class PatternStreamParserTransformer:
         
         except LarkError as e:
             # 触发错误回调
+            Logger.error(f"读取文件失败(LarkError): {e}", exc_info=True)
             self.handler.on_parse_error(f"读取文件失败: {e}")
         except Exception as e:
+            Logger.error(f"读取文件失败: {e}", exc_info=True)
             self.handler.on_parse_error(f"读取文件失败: {e}")
             return []
 
@@ -1352,10 +1358,12 @@ class PatternStreamParserTransformer:
                             transformer.transform(tree)
                         except LarkError as e:
                             # 触发错误回调
+                            Logger.warning(f"解析失败(LarkError): {e}")
                             self.handler.on_parse_error(str(e), statement_buffer)
                             if self.debug:
                                 print(f"解析失败: {statement_buffer[:50]}...")
                         except Exception as e:
+                            Logger.error(f"解析异常: {e}", exc_info=True)
                             self.handler.on_parse_error(str(e), "")
                             if self.debug:
                                 print(f"其他错误: {e}")
@@ -1364,6 +1372,7 @@ class PatternStreamParserTransformer:
             # 解析并转换
             transformer.v_stmt([])
         except Exception as e:
+            Logger.error(f"文件读取错误: {e}", exc_info=True)
             self.handler.on_parse_error(str(e), "")
             if self.debug:
                 print(f"文件读取错误: {e}")
