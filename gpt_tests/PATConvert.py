@@ -117,7 +117,7 @@ class PATConvert:
         if line_count > 10000:  # 超过10000行时进行截断
             # 删除前5000行，保留后5000行
             self.text_area.delete("1.0", "5001.0")
-            self.text_area.insert("1.0", "... [日志已自动截断，显示最近 5000 行] ...\n")
+            self.text_area.insert("1.0", "... [Log truncated, showing last 5000 lines] ...\n")
         
         # 只有在底部时才自动滚动
         if at_bottom:
@@ -131,7 +131,7 @@ class PATConvert:
         line_count = int(self.text_area.index('end-1c').split('.')[0])
         if line_count > 10000:
             self.text_area.delete("1.0", "5001.0")
-            self.text_area.insert("1.0", "... [日志已自动截断，显示最近 5000 行] ...\n")
+            self.text_area.insert("1.0", "... [Log truncated, showing last 5000 lines] ...\n")
         if at_bottom:
             self.text_area.see(tk.END)
     
@@ -183,31 +183,31 @@ class PATConvert:
         """Option按钮点击事件 - 配置VCT通道映射"""
         # 检查是否选择了VCT格式
         if self.output_format_var.get() != "VCT":
-            messagebox.showinfo("提示", "Option配置仅适用于VCT格式，请先选择VCT。")
+            messagebox.showinfo("Info", "Option is only for VCT format. Please select VCT first.")
             return
         
         # 检查Source是否已选择
         source = self.source_var.get()
         if not source:
-            messagebox.showwarning("警告", "请先选择Source文件或文件夹。")
+            messagebox.showwarning("Warning", "Please select a source file or folder first.")
             return
         
         # 确定要解析的文件
         if self.source_type.get() == "Specify File":
             if not os.path.isfile(source):
-                messagebox.showerror("错误", f"文件不存在: {source}")
+                messagebox.showerror("Error", f"File not found: {source}")
                 return
             stil_file = source
         else:  # Standard - 文件夹模式，取第一个.stil文件
             if not os.path.isdir(source):
-                messagebox.showerror("错误", f"文件夹不存在: {source}")
+                messagebox.showerror("Error", f"Folder not found: {source}")
                 return
             stil_files = [f for f in os.listdir(source) if f.endswith(".stil")]
             if not stil_files:
-                messagebox.showerror("错误", f"文件夹中没有找到.stil文件: {source}")
+                messagebox.showerror("Error", f"No .stil files found in: {source}")
                 return
             stil_file = os.path.join(source, stil_files[0])
-            self.log(f"使用第一个STIL文件进行信号解析: {stil_files[0]}")
+            self.log(f"Using first STIL file: {stil_files[0]}")
         
         # 创建或复用VCT转换器
         self.log("=" * 50)
@@ -216,7 +216,7 @@ class PATConvert:
         old_mapping = None
         if self.vct_converter != None:
             old_mapping = self.vct_converter.get_channel_mapping().copy()
-        self.log("开始解析STIL文件，提取信号信息...")
+        self.log("Parsing STIL file, extracting signals...")
         self.vct_converter = STILToVCTStream(stil_file, progress_callback=self.progress_callback)
     
         # 启动线程防止 UI 卡死
@@ -225,18 +225,18 @@ class PATConvert:
         
         
         if not used_signals:
-            messagebox.showerror("错误", "未能从STIL文件中提取到信号信息。")
+            messagebox.showerror("Error", "Failed to extract signal info from STIL file.")
             return
 
         # VCT模式：重新读取信号并自动重新映射
         if old_mapping != None:
             result = self.vct_converter.refresh_signals_and_remap(old_mapping)    
             if not result['success']:
-                messagebox.showerror("错误", f"信号刷新失败: {result['error']}")
+                messagebox.showerror("Error", f"Signal refresh failed: {result['error']}")
                 return
 
         self.log("=" * 50)
-        self.log("打开通道映射配置窗口...")
+        self.log("Opening channel mapping dialog...")
         
         # 弹出配置对话框
         dialog = ChannelMappingDialog(self.root, used_signals, self.vct_converter, self.log)
@@ -245,9 +245,9 @@ class PATConvert:
         self.vct_converter.close()
 
         if dialog.result:
-            self.log("通道映射配置完成！\n")
+            self.log("Channel mapping configured!\n")
         else:
-            self.log("通道映射配置已取消。")
+            self.log("Channel mapping cancelled.")
         
     # def select_target(self):
     #     folder_path = filedialog.askdirectory(title="Select Target Folder")
@@ -260,7 +260,7 @@ class PATConvert:
         
         # 检查Source是否已选择
         if not source:
-            messagebox.showerror("错误", "请先选择Source文件或文件夹")
+            messagebox.showerror("Error", "Please select a source file or folder first")
             return
         
         # 如果是VCT模式，检查是否已配置通道映射
@@ -269,19 +269,19 @@ class PATConvert:
             if self.source_type.get() == "Standard":
                 stil_files = [f for f in os.listdir(source) if f.endswith(".stil")]
                 if not stil_files:
-                    messagebox.showerror("错误", "文件夹中没有找到.stil文件: {source}")
+                    messagebox.showerror("Error", f"No .stil files found in: {source}")
                     return
                 stil_file = os.path.join(source, stil_files[0])
             if not self.vct_converter or not self.vct_converter.get_channel_mapping():
                 # 弹出对话框，如果点击确定将从0开始自动映射通道. 点击X退出
-                result = messagebox.askyesno("提示", "VCT模式需要先点击Option按钮配置通道映射！"+
-                "\n如果点击确定将从0开始自动映射通道. \n点击X退出")
+                result = messagebox.askyesno("Info", "VCT mode requires channel mapping via Option button!\n"+
+                "Click Yes to auto-map channels from 0.\nClick No to cancel.")
                 if result:
                     self.vct_converter = STILToVCTStream(stil_file, progress_callback=self.progress_callback)
                     used_signals = self.vct_converter.read_stil_signals(print_log=True)
                     mapping = {signal: [i] for i, signal in enumerate(used_signals)}
                     self.vct_converter.set_channel_mapping(mapping)
-                    self.log_error("没有将设备通道与Pin角映射，当前从0通道开始自动映射，可能无法在BIB板上生效！")
+                    self.log_error("No channel-to-pin mapping! Auto-mapping from channel 0, may not work on BIB board!")
                 else:
                     return
             # # VCT模式：重新读取信号并自动重新映射
@@ -310,7 +310,7 @@ class PATConvert:
             bool: True表示继续转换，False表示取消或失败
         """
         self.log("=" * 50)
-        self.log("开始刷新信号映射...")
+        self.log("Refreshing signal mapping...")
         
         # 确定要解析的文件
         if self.source_type.get() == "Specify File":
@@ -320,14 +320,14 @@ class PATConvert:
             if stil_files:
                 stil_file = os.path.join(source, stil_files[0])
             else:
-                self.log("警告：未找到STIL文件，跳过信号刷新")
+                self.log("Warning: No STIL file found, skip signal refresh")
                 self.log("=" * 50)
                 return True  # 继续使用原配置
         
         # 保存旧的映射配置
         old_mapping = self.vct_converter.get_channel_mapping().copy()
         old_signal_count = len(old_mapping)
-        self.log(f"当前有 {old_signal_count} 个信号已映射")
+        self.log(f"Currently {old_signal_count} signals mapped")
     
         
         # 创建新的转换器实例并刷新信号
@@ -335,7 +335,7 @@ class PATConvert:
         result = temp_converter.refresh_signals_and_remap(old_mapping)
         
         if not result['success']:
-            self.log(f"警告：{result['error']}，使用原配置")
+            self.log(f"Warning: {result['error']}, using old config")
             self.log("=" * 50)
             return True  # 继续使用原配置
         
@@ -343,57 +343,57 @@ class PATConvert:
         self.vct_converter = temp_converter
         
         # 输出映射结果
-        self.log(f"重新读取到 {len(result['new_signals'])} 个信号")
-        self.log(f"✓ 成功重新映射 {len(result['mapped_signals'])} 个信号")
+        self.log(f"Found {len(result['new_signals'])} signals")
+        self.log(f"✓ Remapped {len(result['mapped_signals'])} signals")
         
         if result['removed_signals']:
-            self.log(f"⚠ 有 {len(result['removed_signals'])} 个旧信号不再存在:")
+            self.log(f"⚠ {len(result['removed_signals'])} old signals no longer exist:")
             for sig in result['removed_signals'][:10]:  # 只显示前10个
                 self.log(f"   - {sig}")
             if len(result['removed_signals']) > 10:
-                self.log(f"   ... 还有 {len(result['removed_signals']) - 10} 个")
+                self.log(f"   ... and {len(result['removed_signals']) - 10} more")
         
         if result['unmapped_signals']:
-            self.log(f"⚠ 有 {len(result['unmapped_signals'])} 个新信号未映射:")
+            self.log(f"⚠ {len(result['unmapped_signals'])} new signals unmapped:")
             for sig in result['unmapped_signals'][:10]:  # 只显示前10个
                 self.log(f"   - {sig}")
             if len(result['unmapped_signals']) > 10:
-                self.log(f"   ... 还有 {len(result['unmapped_signals']) - 10} 个")
+                self.log(f"   ... and {len(result['unmapped_signals']) - 10} more")
             
             # 弹出提示
-            msg = f"检测到 {len(result['unmapped_signals'])} 个新信号未映射到通道。\n\n"
+            msg = f"Found {len(result['unmapped_signals'])} unmapped signals.\n\n"
             if len(result['unmapped_signals']) <= 5:
-                msg += "未映射的信号:\n" + "\n".join(f"  • {sig}" for sig in result['unmapped_signals'])
+                msg += "Unmapped signals:\n" + "\n".join(f"  • {sig}" for sig in result['unmapped_signals'])
             else:
-                msg += "未映射的信号:\n" + "\n".join(f"  • {sig}" for sig in result['unmapped_signals'][:5])
-                msg += f"\n  ... 还有 {len(result['unmapped_signals']) - 5} 个"
-            msg += "\n\n是否继续转换？（未映射的信号将不输出）"
+                msg += "Unmapped signals:\n" + "\n".join(f"  • {sig}" for sig in result['unmapped_signals'][:5])
+                msg += f"\n  ... and {len(result['unmapped_signals']) - 5} more"
+            msg += "\n\nContinue? (Unmapped signals will not be output)"
             
-            if not messagebox.askyesno("信号映射提示", msg):
-                self.log("用户取消转换")
+            if not messagebox.askyesno("Signal Mapping", msg):
+                self.log("User cancelled conversion")
                 self.log("=" * 50)
                 return False  # 用户取消
         
-        self.log("信号映射刷新完成")
+        self.log("Signal mapping refreshed")
         self.log("=" * 50)
         return True  # 继续转换
     
     def stop_conversion(self):
         """停止当前的转换"""
         self._stop_requested = True  # 设置批量转换停止标志
-        self.log("用户点击Stop按钮，正在停止转换...")
+        self.log("Stop button clicked, stopping conversion...")
         
         # 停止当前正在运行的解析器（PAT 或 VCT）
         if self.current_parser:
             self.current_parser.stop()
-            self.log("用户点击Stop按钮，正在停止转换...")
+            self.log("Stopping parser...")
         if self.vct_converter:
             self.vct_converter.stop()
-            self.log("用户点击Stop按钮，正在停止VCT转换...")
+            self.log("Stopping VCT conversion...")
 
     def progress_callback(self, message):
         """Progress callback function with real-time vector counting"""
-        if "错误" in message or "失败" in message or "Error" in message or "警告" in message:
+        if "Fail" in message or "Failed" in message or "Warning" in message or "Error" in message:
             self.log_error(message)
         else:
             self.log(message)
@@ -435,7 +435,7 @@ class PATConvert:
             self.log(f"Total conversion time: {total_time.total_seconds():.2f} seconds")
             self.log(f"{target_file_path} conversion successfully!")
         except Exception as e:
-            Logger.error(f"文件转换失败: {e}", exc_info=True)
+            Logger.error(f"File conversion failed: {e}", exc_info=True)
             end_time = datetime.now()
             total_time = end_time - start_time
             self.log(f"Conversion failed after {total_time.total_seconds():.2f} seconds: {str(e)}")
@@ -456,7 +456,7 @@ class PATConvert:
         """VCT格式转换（使用STILToVCTStream）"""
         # 检查是否已配置通道映射
         if not self.vct_converter or not self.vct_converter.get_channel_mapping():
-            raise Exception("请先点击Option按钮配置通道映射！")
+            raise Exception("Please configure channel mapping via Option button first!")
         
         # 批量转换时，每个文件需要重新读取信号并重新映射
         old_mapping = self.vct_converter.get_channel_mapping().copy()
@@ -500,38 +500,38 @@ class PATConvert:
                 # 获取所有.stil文件
                 stil_files = [f for f in os.listdir(source) if f.endswith(".stil")]
                 total_files = len(stil_files)
-                self.log(f"找到 {total_files} 个STIL文件")
+                self.log(f"Found {total_files} STIL files")
                 target = os.path.join(source, "converted")
                 if not os.path.exists(target):
                     os.makedirs(target)
                 for index, filename in enumerate(stil_files, 1):
                     # 检查是否请求停止
                     if self._stop_requested:
-                        self.log(f"用户停止批量转换，剩余 {total_files - index + 1} 个文件未转换")
+                        self.log(f"User stopped, {total_files - index + 1} files remaining")
                         break
                     
                     source_file = os.path.join(source, filename)
-                    self.log(f"[{index}/{total_files}] 开始转换: {filename}")
+                    self.log(f"[{index}/{total_files}] Converting: {filename}")
                     try:
                         self.convert_file(source_file, target)
                     except Exception as e:
-                        Logger.error(f"文件 {filename} 转换失败: {e}", exc_info=True)
-                        self.log(f"文件 {filename} 转换失败: {str(e)}")
+                        Logger.error(f"File {filename} conversion failed: {e}", exc_info=True)
+                        self.log(f"File {filename} failed: {str(e)}")
                         # 继续转换下一个文件
                         continue
                     
                     # 转换完成后再次检查是否请求停止
                     if self._stop_requested:
-                        self.log(f"用户停止批量转换，剩余 {total_files - index} 个文件未转换")
+                        self.log(f"User stopped, {total_files - index} files remaining")
                         break
             else:
                 messagebox.showerror("Error", "Please select a valid source type")
                 return
             
             if not self._stop_requested:
-                self.log("所有转换完成!")
+                self.log("All conversions completed!")
             else:
-                self.log("批量转换已停止!")
+                self.log("Batch conversion stopped!")
         finally:
             # 转换完成或停止后，恢复按钮和控件状态
             self.start_button.config(state="normal")

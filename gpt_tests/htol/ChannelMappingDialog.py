@@ -44,13 +44,13 @@ class ChannelMappingDialog:
         
         # 创建顶层窗口
         self.top = tk.Toplevel(parent)
-        self.top.title("VCT通道映射配置")
+        self.top.title("VCT Channel Mapping")
         self.top.geometry("600x650")
         self.top.transient(parent)
         self.top.grab_set()
         
         # 说明标签
-        ttk.Label(self.top, text="点击「通道号」列进行编辑（多个通道用逗号分隔，如: 17,25,33）").pack(pady=10)
+        ttk.Label(self.top, text="Click 'Channel' column to edit (separate multiple channels with comma, e.g. 17,25,33)").pack(pady=10)
         
         # 创建表格区域
         frame_table = ttk.Frame(self.top)
@@ -69,7 +69,7 @@ class ChannelMappingDialog:
         self.sheet = Sheet(
             frame_table,
             data=table_data,
-            headers=["序号", "信号名", "通道号"],
+            headers=["No.", "Signal", "Channel"],
             show_x_scrollbar=True,
             show_y_scrollbar=True,
             show_row_index=False,
@@ -110,11 +110,11 @@ class ChannelMappingDialog:
         frame_buttons.pack(fill="x", padx=10, pady=10)
         
         # 右侧：确定按钮
-        ttk.Button(frame_buttons, text="确定", command=self.on_ok).pack(side="right", padx=5)
+        ttk.Button(frame_buttons, text="OK", command=self.on_ok).pack(side="right", padx=5)
         
         # 左侧：导入和导出按钮
-        ttk.Button(frame_buttons, text="导入", command=self.on_import).pack(side="left", padx=5)
-        ttk.Button(frame_buttons, text="导出", command=self.on_export).pack(side="left", padx=5)
+        ttk.Button(frame_buttons, text="Import", command=self.on_import).pack(side="left", padx=5)
+        ttk.Button(frame_buttons, text="Export", command=self.on_export).pack(side="left", padx=5)
     
     def validate_channel_string(self, channel_str: str) -> Tuple[bool, List[int], Optional[str]]:
         """验证通道号字符串
@@ -141,9 +141,9 @@ class ChannelMappingDialog:
                 if 0 <= channel <= 255:
                     channels.append(channel)
                 else:
-                    return (False, [], f"通道号 {channel} 超出范围(0-255)")
+                    return (False, [], f"Channel {channel} out of range (0-255)")
             except ValueError:
-                return (False, [], f"'{part}' 不是有效的数字")
+                return (False, [], f"'{part}' is not a valid number")
         
         return (True, channels, None)
     
@@ -199,7 +199,7 @@ class ChannelMappingDialog:
             is_valid, channels, error_msg = self.validate_channel_string(channel_str)
             
             if not is_valid:
-                errors.append(f"信号 '{signal}': {error_msg}")
+                errors.append(f"Signal '{signal}': {error_msg}")
             elif channels:
                 mapping[signal] = channels
             else:
@@ -207,8 +207,8 @@ class ChannelMappingDialog:
         
         # 如果有格式错误，弹出提示
         if errors:
-            error_text = "通道号格式错误，请修正：\n\n" + "\n".join(errors)
-            messagebox.showerror("格式错误", error_text, parent=self.top)
+            error_text = "Invalid channel format:\n\n" + "\n".join(errors)
+            messagebox.showerror("Format Error", error_text, parent=self.top)
             return
         
         # 检测重复通道号
@@ -224,16 +224,16 @@ class ChannelMappingDialog:
         if duplicates:
             dup_lines = []
             for ch, sigs in sorted(duplicates.items()):
-                dup_lines.append(f"  通道 {ch}: {', '.join(sigs)}")
-            error_text = "以下通道号被多个信号使用，请修正：\n\n" + "\n".join(dup_lines)
-            messagebox.showerror("通道号重复", error_text, parent=self.top)
+                dup_lines.append(f"  Channel {ch}: {', '.join(sigs)}")
+            error_text = "Duplicate channels found:\n\n" + "\n".join(dup_lines)
+            messagebox.showerror("Duplicate Channel", error_text, parent=self.top)
             return
         
         # 如果没有配置任何通道，提示用户
         if not mapping:
             result = messagebox.askyesno(
-                "确认", 
-                "您没有为任何信号配置通道号。\n\n确定要继续吗？",
+                "Confirm", 
+                "No channel mapping configured.\n\nContinue anyway?",
                 parent=self.top
             )
             if not result:
@@ -245,10 +245,10 @@ class ChannelMappingDialog:
             configured_count = len(mapping)
             
             result = messagebox.askyesno(
-                "确认", 
-                f"已配置 {configured_count} 个信号的通道映射。\n"
-                f"还有 {empty_count} 个信号未配置通道。\n\n"
-                f"确定要继续吗？",
+                "Confirm", 
+                f"{configured_count} signals mapped.\n"
+                f"{empty_count} signals not mapped.\n\n"
+                f"Continue anyway?",
                 parent=self.top
             )
             if not result:
@@ -257,10 +257,10 @@ class ChannelMappingDialog:
         # 保存映射
         if mapping:
             self.vct_converter.set_channel_mapping(mapping)
-            self.log(f"通道映射配置已保存：")
+            self.log(f"Channel mapping saved:")
             for signal, channels in mapping.items():
                 self.log(f"  {signal} -> {channels}")
-            self.log(f"共配置了 {len(mapping)} 个信号的通道映射")
+            self.log(f"Total: {len(mapping)} signals mapped")
         
         self.result = True
         self.top.destroy()
@@ -273,11 +273,11 @@ class ChannelMappingDialog:
     def on_import(self):
         """导入通道映射配置（支持 Excel 和 CSV 格式）"""
         file_path = filedialog.askopenfilename(
-            title="导入通道映射配置",
+            title="Import Channel Mapping",
             filetypes=[
-                ("Excel文件", "*.xlsx *.xls"),
-                ("CSV文件", "*.csv"),
-                ("所有文件", "*.*")
+                ("Excel Files", "*.xlsx *.xls"),
+                ("CSV Files", "*.csv"),
+                ("All Files", "*.*")
             ],
             parent=self.top
         )
@@ -297,8 +297,8 @@ class ChannelMappingDialog:
                     import openpyxl
                 except ImportError:
                     messagebox.showerror(
-                        "导入失败", 
-                        "需要安装 openpyxl 库来读取 Excel 文件\n请运行: pip install openpyxl", 
+                        "Import Failed", 
+                        "openpyxl library required.\nRun: pip install openpyxl", 
                         parent=self.top
                     )
                     return
@@ -346,8 +346,8 @@ class ChannelMappingDialog:
                                 config[signal] = channels
             else:
                 messagebox.showerror(
-                    "导入失败", 
-                    f"不支持的文件格式: {ext}\n支持 .xlsx, .xls, .csv", 
+                    "Import Failed", 
+                    f"Unsupported format: {ext}\nSupported: .xlsx, .xls, .csv", 
                     parent=self.top
                 )
                 return
@@ -369,8 +369,8 @@ class ChannelMappingDialog:
                     updated_count += 1
             
             self.sheet.refresh()
-            self.log(f"已从 {file_path} 导入配置")
-            self.log(f"更新了 {updated_count} 个信号的通道映射")
+            self.log(f"Imported from {file_path}")
+            self.log(f"Updated {updated_count} signal mappings")
             # messagebox.showinfo(
             #     "导入成功", 
             #     f"已导入 {updated_count} 个信号的通道映射配置", 
@@ -378,16 +378,16 @@ class ChannelMappingDialog:
             # )
 
         except Exception as e:
-            Logger.error(f"通道映射导入失败: {e}", exc_info=True)
-            messagebox.showerror("导入失败", f"导入失败: {e}", parent=self.top)
+            Logger.error(f"Import failed: {e}", exc_info=True)
+            messagebox.showerror("Import Failed", f"Import failed: {e}", parent=self.top)
     
     def on_export(self):
         """导出通道映射配置（支持 Excel 和 CSV 格式）"""
         file_path = filedialog.asksaveasfilename(
-            title="导出通道映射配置",
+            title="Export Channel Mapping",
             filetypes=[
-                ("Excel文件", "*.xlsx"),
-                ("CSV文件", "*.csv")
+                ("Excel Files", "*.xlsx"),
+                ("CSV Files", "*.csv")
             ],
             defaultextension=".xlsx",
             parent=self.top
@@ -421,8 +421,8 @@ class ChannelMappingDialog:
                     from openpyxl.styles import Font
                 except ImportError:
                     messagebox.showerror(
-                        "导出失败", 
-                        "需要安装 openpyxl 库来写入 Excel 文件\n请运行: pip install openpyxl", 
+                        "Export Failed", 
+                        "openpyxl library required.\nRun: pip install openpyxl", 
                         parent=self.top
                     )
                     return
@@ -457,21 +457,21 @@ class ChannelMappingDialog:
                         writer.writerow([signal, channel_str])
             else:
                 messagebox.showerror(
-                    "导出失败", 
-                    f"不支持的文件格式: {ext}\n支持 .xlsx, .csv", 
+                    "Export Failed", 
+                    f"Unsupported format: {ext}\nSupported: .xlsx, .csv", 
                     parent=self.top
                 )
                 return
             
-            self.log(f"已导出配置到 {file_path}")
-            self.log(f"导出了 {len(config)} 个信号的通道映射")
+            self.log(f"Exported to {file_path}")
+            self.log(f"Exported {len(config)} signal mappings")
             messagebox.showinfo(
-                "导出成功", 
-                f"已导出 {len(config)} 个信号的通道映射配置", 
+                "Export Success", 
+                f"Exported {len(config)} signal mappings", 
                 parent=self.top
             )
             
         except Exception as e:
-            Logger.error(f"通道映射导出失败: {e}", exc_info=True)
-            messagebox.showerror("导出失败", f"导出失败: {e}", parent=self.top)
+            Logger.error(f"Export failed: {e}", exc_info=True)
+            messagebox.showerror("Export Failed", f"Export failed: {e}", parent=self.top)
 
