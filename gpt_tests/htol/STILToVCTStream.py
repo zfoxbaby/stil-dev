@@ -61,6 +61,7 @@ class STILToVCTStream(STILEventHandler):
         self.wft_pending: bool = False       # 波形表是否刚切换
         self.wfc_replacement_map: Dict[Tuple[str, str, str], str] = {}  # WFC替换映射 {(wft, signal, wfc): replacement}
         self.output_file = None              # 输出文件句柄（在 generate_vct_vector_section 时设置）
+        self.last_channel_data: List[str] = ["."] * 256  # 上一行的通道数据，用于补充缺少的信号值
         
         # 通用解析工具
         self.parser_utils = STILParserUtils(debug=debug)
@@ -265,13 +266,13 @@ class STILToVCTStream(STILEventHandler):
         
         timing_content = self.timing_formatter.format_all_timings(self.timings)
         
-        # if timing_content:
-        #     lines.append(";    Converted timing maybe not correct, Please check the timing definitions:")
-        #     lines.append(";    DUD/UDU -> P/N; UD/DU -> 01 DNRZ; D -> 0; U -> 1; P -> Q; Other -> Other")
-        #     lines.append(";")
-        #     timing_lines = timing_content.split("\n")
-        #     prefixed_lines = [";  " + line for line in timing_lines]
-        #     lines.extend(prefixed_lines)
+        if timing_content:
+            # lines.append(";    Converted timing maybe not correct, Please check the timing definitions:")
+            # lines.append(";    DUD/UDU -> P/N; UD/DU -> 01 DNRZ; D -> 0; U -> 1; P -> Q; Other -> Other")
+            # lines.append(";")
+            timing_lines = timing_content.split("\n")
+            prefixed_lines = [";  " + line for line in timing_lines]
+            lines.extend(prefixed_lines)
         
         lines.append("")
         
@@ -507,8 +508,9 @@ class STILToVCTStream(STILEventHandler):
         toen = str(rradr)     # TOEN/RRADR
         cs = "1"              # CS (固定1)
         
-        # 初始化 256 通道数据为 "."
-        channel_data = ["."] * 256
+        # 使用上一行的通道数据作为初始值（自动补充缺少的信号值）
+        # 这样当某个 V 块的信号数少于前一个 V 块时，缺少的信号会使用上一行的值
+        channel_data = self.last_channel_data.copy()
         
         label_str = ""
         vector_address = 0
@@ -550,6 +552,9 @@ class STILToVCTStream(STILEventHandler):
                     for channel in self.signal_to_channels[signal]:
                         if 0 <= channel <= 255:
                             channel_data[channel] = wfc_char
+        
+        # 保存当前通道数据，供下一行使用（自动补充缺少的信号值）
+        self.last_channel_data = channel_data.copy()
         
         channel_str = "".join(channel_data)
         

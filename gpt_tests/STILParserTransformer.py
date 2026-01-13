@@ -117,6 +117,7 @@ class ParserState:
         self.vector_address = 0  # 向量地址（用于生成自动 Label 和输出）
         # loop嵌套层数计数器
         self.loop_deep = 0
+        self.loop_label_index = 0;
         # 左括号个数，出现右括号时减一，为了判断是否有{}嵌套并且是否获取了完整的{}对数
         self.left_square_count = 0
         # 当出现loop、matchloop、breakpoint时需要缓存部分V块
@@ -196,6 +197,7 @@ class ParserState:
             # 检查 pending_vector 是否已有微指令
             first_item = self.pending_vector[0]
             existing_instr = first_item[2] if len(first_item) > 2 else ""
+            existing_param = first_item[3] if len(first_item) > 3 else ""
             
             if not existing_instr or existing_instr.strip() == "" or existing_instr == DEFAULT_INSTRUCTION:
                 # 可以附加：更新 pending_vector 中每个元素的 instr 和 param
@@ -212,10 +214,31 @@ class ParserState:
                 self.pending_vector = None
                 return True
             else:
-                # 如果不能成功替换，说明已经有指令了，直接返回False，然后把pending_vector清空
-                handler.on_vector(self.pending_vector, instr, param)
-                self.pending_vector = None
-                return False
+                # 已有指令，检查是否是 RPT
+                if existing_instr == map_instruction("Repeat") and existing_param and int(existing_param) > 1:
+                    # RPT 减一，拿出一行放新指令
+                    old_rpt_data = []
+                    new_instr_data = []
+                    for item in self.pending_vector:
+                        # RPT 减一保留
+                        old_rpt_data.append((item[0], item[1], item[2], int(item[3]) - 1, item[4], item[5]))
+                        # 新指令行
+                        new_instr_data.append((item[0], item[1], instr, param, 
+                                              label if label else item[4], item[5]))
+                    # 写出 RPT 减一后的行
+                    handler.on_vector(old_rpt_data, existing_instr, str(int(existing_param) - 1))
+                    self.vector_count += 1
+                    # 写出新指令行
+                    handler.on_vector(new_instr_data, instr, param)
+                    self.vector_count += 1
+                    self.pending_vector = None
+                    return True
+                else:
+                    # 其他指令，先写出 pending_vector，返回 False 让调用者单独起一行
+                    handler.on_vector(self.pending_vector, existing_instr, existing_param)
+                    self.vector_count += 1
+                    self.pending_vector = None
+                    return False
         
         return False
 
@@ -411,8 +434,25 @@ class STILParserTransformer(Transformer):
         微指令放在前一个 V 上，所以需要延迟写入
         """
         if len(children) == 0 and len(self.state.vec_data_list) == 0:
-            # 解析结束时调用，写出最后一个 pending_vector
-            self.state.flush_pending_vector(self.handler)
+            # 看最后一个pending_vector是否有值，如果有值，看是否有指令，
+            if self.state.pending_vector is not None:
+                has_instr = any(vec[2] and vec[2].strip() != "" for vec in self.state.pending_vector)
+                if has_instr:
+                    # 有指令就单独起一个空行放上RET
+                    self.state.flush_pending_vector(self.handler)
+                    self.handler.on_micro_instruction("", map_instruction("Return"), "", self.state.vector_address)
+                    self.state.vector_address += 1
+                else:
+                    # 没有指令就添加RET到self.state.pending_vector
+                    new_data_list = []
+                    for vec in self.state.pending_vector:
+                        new_data_list.append((vec[0], vec[1], map_instruction("Return"), "", vec[4], vec[5]))
+                    self.state.pending_vector = new_data_list
+                    self.state.flush_pending_vector(self.handler)
+            else:
+                self.state.flush_pending_vector(self.handler)
+                self.handler.on_micro_instruction("", map_instruction("Return"), "", self.state.vector_address)
+                self.state.vector_address += 1
             return {}
         
         # 检查禁用指令
@@ -530,14 +570,16 @@ class STILParserTransformer(Transformer):
         压入 Loop 指令标记，等 close_loop_block 时根据 V 数量决定如何处理
         """
         loop_instr = f"{map_instruction('Loop')}{self.state.loop_deep}"
-        loop_label = self.state.curr_label if self.state.curr_label else f"0x{self.state.vector_address:06X}"
+        self.state.loop_label_index += 1 
+        loop_label = self.state.curr_label if self.state.curr_label else f"S_LOOP{self.state.loop_label_index}"
         
         # 压入 Loop 指令标记
         self.state.vec_data_list.append({
             "type": "loop",
             "instr": loop_instr,
             "param": self.state.curr_param,
-            "label": loop_label,
+            "label": self.state.curr_label,
+            "loop_label": loop_label,
             "loop_deep": self.state.loop_deep
         })
         
@@ -549,9 +591,9 @@ class STILParserTransformer(Transformer):
         return {"is_loop_end": False}
 
     def close_loop_block(self, children: List) -> Dict[str, Any]:
-        """处理 Loop 结束块
+        """处理 Loop 结束块（原地操作，保持顺序）
         
-        从 vec_data_list 末尾往前找对应的 loop 标记，统计 V 数量：
+        使用索引直接在 vec_data_list 中操作，不取出元素：
         - 1 个 V：LI 改成 RPT，放在这个 V 上
         - 多个 V：LI 放在 loop 前面的 V 上，JNI 放在最后一个 V 上
         - 如果 loop 前面不是 V 或 V 已有指令：LI 单独用 Q 占位
@@ -561,127 +603,192 @@ class STILParserTransformer(Transformer):
         if len(self.state.vec_data_list) == 0:
             return {}
         
-        # 从末尾收集直到找到对应的 loop 标记
-        loop_content = []  # Loop 内的所有元素
-        loop_info = None
-        
-        #找到最近的一个loop instruction
-        while len(self.state.vec_data_list) > 0:
-            item = self.state.vec_data_list.pop()
+        # 从末尾往前找到对应的 loop 标记的索引（不 pop）
+        loop_index = -1
+        for i in range(len(self.state.vec_data_list) - 1, -1, -1):
+            item = self.state.vec_data_list[i]
             if item.get("type") == "loop" and item.get("loop_deep") == self.state.loop_deep:
-                loop_info = item
+                loop_index = i
                 break
-            loop_content.insert(0, item)  # 保持顺序
         
-        if loop_info is None:
+        if loop_index == -1:
             # 没找到对应的 loop 标记，异常
             return {}
         
-        # 统计 Loop 内的 V 数量
-        v_items = [x for x in loop_content if x.get("type") == "vector"]
-        v_count = len(v_items)
+        loop_info = self.state.vec_data_list[loop_index]
         
-        loop_instr = loop_info["instr"]     # LI0, LI1, ...
-        loop_param = loop_info["param"]     # 循环次数
-        loop_label = loop_info["label"]     # 标签
+        # 统计 loop 标记后面到末尾的 V 索引
+        v_indices = []  # Loop 内 V 的索引列表
+        for i in range(loop_index + 1, len(self.state.vec_data_list)):
+            if self.state.vec_data_list[i].get("type") == "vector":
+                v_indices.append(i)
+        
+        v_count = len(v_indices)
+        
+        loop_instr = loop_info["instr"]       # LI0, LI1, ...
+        loop_param = loop_info["param"]       # 循环次数
+        loop_label = loop_info["loop_label"]  # Loop 标签
+        label = loop_info["label"]            # 标签
         
         if v_count == 0:
-            # Loop 内没有 V，异常
+            # Loop 内没有 V，删除 loop 标记
+            del self.state.vec_data_list[loop_index]
             return {}
         elif v_count == 1:
-            # 情况 1/3：只有 1 个 V，LI 改成 RPT，放在这个 V 上
-            # 先写出 pending_vector，保证顺序正确
-            for item in loop_content:
-                if item.get("type") == "vector":
-                    # 给 V 附加 RPT
-                    new_data = []
-                    for vec in item["data"]:
-                        # 减+
-                        new_data.append((vec[0], vec[1],
-                         map_instruction("Repeat"), int(loop_param) + 1, loop_label, vec[5]))
-                    self.state.vec_data_list.append({"type": "vector", "data": new_data})
-                    # 因为RPT减去了一行，这里加一行
-                    # self.state.vec_data_list.append({"type": "vector", "data": item["data"]});
-                else:
-                    # 其他指令保持原样
-                    self.state.vec_data_list.append(item)
+            # 只有 1 个 V，改成 RPT（原地修改）
+            v_idx = v_indices[0]
+            item = self.state.vec_data_list[v_idx]
+            new_data = []
+            for vec in item["data"]:
+                new_data.append((vec[0], vec[1], map_instruction("Repeat"), 
+                               int(loop_param) + 1, label, vec[5]))
+            self.state.vec_data_list[v_idx] = {"type": "vector", "data": new_data}
+            # 删除 loop 标记
+            del self.state.vec_data_list[loop_index]
         else:
-            # 情况 2/4：多个 V，LI 放在 loop 前面的 V 上，JNI 放在最后一个 V 上
-            # 先检查 loop 前面是否有 V（嵌套循环再 vec_data_list 中 否则再pending_vector 中）
-            prev_is_vector_in_list = (len(self.state.vec_data_list) > 0 and 
-                                      self.state.vec_data_list[-1].get("type") == "vector")
-            prev_is_vector_in_pending = (self.state.pending_vector is not None and 
+            # 多个 V：LI 放在 loop 前面的 V 上，JNI 放在最后一个 V 上
+            # 检查 loop_index 前面是否有 V
+            prev_is_vector_in_list = (loop_index > 0 and 
+                                      self.state.vec_data_list[loop_index - 1])
+            prev_is_vector_in_pending = (loop_index == 0 and 
+                                         self.state.pending_vector is not None and 
                                          len(self.state.pending_vector) > 0)
-            prev_is_vector = prev_is_vector_in_list or prev_is_vector_in_pending
             
-            if prev_is_vector:
-                # 情况 2：LI 放在前一个 V 上
-                # 前一个 V 可能在 vec_data_list 或 pending_vector 中
-                if prev_is_vector_in_list:
-                    prev_item = self.state.vec_data_list.pop()
+            # 处理 LI 指令的放置
+            li_replaced_loop = False  # 标记 loop 标记是否被替换（而不是删除）
+            
+            if prev_is_vector_in_list:
+                # loop 前面有 V（在 vec_data_list 中）
+                prev_idx = loop_index - 1
+                prev_item = self.state.vec_data_list[prev_idx]
+                # 如果上一条是纯指令，就跳过，写出的时候会处理成单独一行
+                if prev_item["type"] == "vector":
                     prev_data = prev_item["data"]
+                    
+                    # 检查前一个 V 是否已有指令
+                    has_instr = any(vec[2] and vec[2].strip() != "" for vec in prev_data)
+                    if has_instr:
+                        # 如果上一个指令是 RPT，减一后拿出一行放 LI
+                        if prev_data and prev_data[0][2] == map_instruction("Repeat") and int(prev_data[0][3]) > 1:
+                            old_rpt_data = []
+                            new_v_data = []
+                            for vec in prev_data:
+                                old_rpt_data.append((vec[0], vec[1], vec[2], int(vec[3]) - 1, vec[4], vec[5]))
+                                new_v_data.append((vec[0], vec[1], loop_instr, loop_param, loop_label, vec[5]))
+                            self.state.vec_data_list[prev_idx] = {"type": "vector", "data": old_rpt_data}
+                            # 把 loop 标记替换为带 LI 的 V
+                            self.state.vec_data_list[loop_index] = {"type": "vector", "data": new_v_data}
+                            li_replaced_loop = True
+                        else:
+                            # 已有其他指令，LI 替换 loop 标记位置（单独成一行）
+                            self.state.vec_data_list[loop_index] = {
+                                "type": "instruction",
+                                "instr": loop_instr,
+                                "param": loop_param,
+                                "label": loop_label
+                            }
+                            li_replaced_loop = True
+                    else:
+                        # 没有指令，附加 LI 到前一个 V
+                        new_data = []
+                        for vec in prev_data:
+                            new_data.append((vec[0], vec[1], loop_instr, loop_param, loop_label, vec[5]))
+                        self.state.vec_data_list[prev_idx] = {"type": "vector", "data": new_data}
+                        # 删除 loop 标记
+                        del self.state.vec_data_list[loop_index]
+                        # 索引需要调整（删除了一个元素）
+                        v_indices = [i - 1 for i in v_indices]
                 else:
-                    # 在 pending_vector 中
-                    prev_data = self.state.pending_vector
-                    self.state.pending_vector = None
-                
-                # 检查前一个 V 是否已有指令
+                    # 已有其他指令，LI 替换 loop 标记位置（单独成一行）
+                    self.state.vec_data_list[loop_index] = {
+                        "type": "instruction",
+                        "instr": loop_instr,
+                        "param": loop_param,
+                        "label": loop_label
+                    }
+                    li_replaced_loop = True
+            elif prev_is_vector_in_pending:
+                # loop 前面有 V（在 pending_vector 中）
+                prev_data = self.state.pending_vector
                 has_instr = any(vec[2] and vec[2].strip() != "" for vec in prev_data)
+                
                 if has_instr:
-                    # 如果上一个指令是RPT，就把它的指令的参数减一，然后拿出一行，放LI
+                    # 检查是否是 RPT，如果是就减一后拿出一行放 LI
                     if prev_data and prev_data[0][2] == map_instruction("Repeat") and int(prev_data[0][3]) > 1:
+                        # RPT 减一，保留在 pending_vector
                         old_rpt_data = []
                         new_v_data = []
                         for vec in prev_data:
                             old_rpt_data.append((vec[0], vec[1], vec[2], int(vec[3]) - 1, vec[4], vec[5]))
                             new_v_data.append((vec[0], vec[1], loop_instr, loop_param, loop_label, vec[5]))
-                        self.state.vec_data_list.append({"type": "vector", "data": old_rpt_data})
-                        self.state.vec_data_list.append({"type": "vector", "data": new_v_data})
+                        self.state.pending_vector = old_rpt_data
+                        # 把 loop 标记替换为带 LI 的 V
+                        self.state.vec_data_list[loop_index] = {"type": "vector", "data": new_v_data}
+                        li_replaced_loop = True
                     else:
-                        # 已有指令，先把原 V 放回，LI 单独成一行
-                        self.state.vec_data_list.append({"type": "vector", "data": prev_data})
-                        self.state.vec_data_list.append({
+                        # 已有其他指令，LI 替换 loop 标记位置（单独成一行）
+                        self.state.vec_data_list[loop_index] = {
                             "type": "instruction",
                             "instr": loop_instr,
                             "param": loop_param,
                             "label": loop_label
-                        })
+                        }
+                        li_replaced_loop = True
                 else:
-                    # 没有指令，附加 LI
+                    # 没有指令，附加 LI 到 pending_vector
                     new_data = []
-                    needAdd = False
                     for vec in prev_data:
-                        if vec[4] and not needAdd:
-                            self.state.vec_data_list.append({"type": "label", "label": vec[4]})
-                            needAdd = True
-                        new_data.append((vec[0], vec[1], loop_instr, loop_param,
-                                         loop_label, vec[5]))
-                    self.state.vec_data_list.append({"type": "vector", "data": new_data})
+                        new_data.append((vec[0], vec[1], loop_instr, loop_param, loop_label, vec[5]))
+                    self.state.pending_vector = new_data
+                    # 删除 loop 标记
+                    del self.state.vec_data_list[loop_index]
+                    # 索引需要调整
+                    v_indices = [i - 1 for i in v_indices]
             else:
-                # 情况 4：前面不是 V，LI 单独成一行
-                self.state.vec_data_list.append({
+                # 前面不是 V，LI 替换 loop 标记位置（单独成一行）
+                self.state.vec_data_list[loop_index] = {
                     "type": "instruction",
                     "instr": loop_instr,
                     "param": loop_param,
                     "label": loop_label
-                })
+                }
+                li_replaced_loop = True
             
-            # 把 Loop 内的元素加回去，最后一个 V 附加 JNI
+            # 最后一个 V 附加 JNI（原地修改）
+            last_v_idx = v_indices[-1]
+            item = self.state.vec_data_list[last_v_idx]
+            last_v_data = item["data"]
             jni_instr = f"{map_instruction('LoopEnd')}{self.state.loop_deep}"
-            v_index = 0
-            for item in loop_content:
-                if item.get("type") == "vector":
-                    v_index += 1
-                    if v_index == v_count:
-                        # 最后一个 V，附加 JNI
-                        new_data = []
-                        for vec in item["data"]:
-                            new_data.append((vec[0], vec[1], jni_instr, loop_label, vec[4], vec[5]))
-                        self.state.vec_data_list.append({"type": "vector", "data": new_data})
-                    else:
-                        self.state.vec_data_list.append(item)
+            
+            # 检查最后一个 V 是否已有微指令
+            last_has_instr = any(vec[2] and vec[2].strip() != "" for vec in last_v_data)
+            
+            if last_has_instr:
+                # 检查是否是 RPT，如果是就减一后拿出一行放 JNI
+                if last_v_data and last_v_data[0][2] == map_instruction("Repeat") and int(last_v_data[0][3]) > 1:
+                    # RPT 减一
+                    old_rpt_data = []
+                    new_jni_data = []
+                    for vec in last_v_data:
+                        old_rpt_data.append((vec[0], vec[1], vec[2], int(vec[3]) - 1, vec[4], vec[5]))
+                        new_jni_data.append((vec[0], vec[1], jni_instr, loop_label, vec[4], vec[5]))
+                    self.state.vec_data_list[last_v_idx] = {"type": "vector", "data": old_rpt_data}
+                    # 在最后一个 V 后面插入带 JNI 的 V
+                    self.state.vec_data_list.insert(last_v_idx + 1, {"type": "vector", "data": new_jni_data})
                 else:
-                    self.state.vec_data_list.append(item)
+                    # 已有其他指令，JNI 单独成一行（插入到最后一个 V 后面）
+                    self.state.vec_data_list.insert(last_v_idx + 1, {
+                        "type": "instruction",
+                        "instr": jni_instr,
+                        "param": loop_label,
+                        "label": ""
+                    })
+            else:
+                # 没有微指令，直接附加 JNI
+                new_data = []
+                for vec in last_v_data:
+                    new_data.append((vec[0], vec[1], jni_instr, loop_label, vec[4], vec[5]))
+                self.state.vec_data_list[last_v_idx] = {"type": "vector", "data": new_data}
         
         # 如果回到最外层，写出
         if self.state.loop_deep == 0 and self.state.left_square_count == 0:
@@ -731,7 +838,7 @@ class STILParserTransformer(Transformer):
         return {"is_matchloop_end": False}
     
     def close_matchloop_block(self, children: List) -> Dict[str, Any]:
-        """处理 MatchLoop 结束块
+        """处理 MatchLoop 结束块（原地操作，保持顺序）
         
         与 Loop 类似：
         - 1 个 V：MBGN 改成 IMATCH，放在这个 V 上
@@ -744,118 +851,191 @@ class STILParserTransformer(Transformer):
         if len(self.state.vec_data_list) == 0:
             return {}
         
-        # 从末尾收集直到找到对应的 matchloop 标记
-        match_content = []
-        match_info = None
-        
-        while len(self.state.vec_data_list) > 0:
-            item = self.state.vec_data_list.pop()
+        # 从末尾往前找到对应的 matchloop 标记的索引（不 pop）
+        match_index = -1
+        for i in range(len(self.state.vec_data_list) - 1, -1, -1):
+            item = self.state.vec_data_list[i]
             if item.get("type") == "matchloop" and item.get("loop_deep") == self.state.loop_deep:
-                match_info = item
+                match_index = i
                 break
-            match_content.insert(0, item)
         
-        if match_info is None:
+        if match_index == -1:
             return {}
         
-        # 统计 MatchLoop 内的 V 数量
-        v_items = [x for x in match_content if x.get("type") == "vector"]
-        v_count = len(v_items)
+        match_info = self.state.vec_data_list[match_index]
+        
+        # 统计 matchloop 标记后面到末尾的 V 索引
+        v_indices = []
+        for i in range(match_index + 1, len(self.state.vec_data_list)):
+            if self.state.vec_data_list[i].get("type") == "vector":
+                v_indices.append(i)
+        
+        v_count = len(v_indices)
         
         match_instr = match_info["instr"]   # MBGN
         match_param = match_info["param"]   # 循环次数
         match_label = match_info["label"]
         
         if v_count == 0:
+            # MatchLoop 内没有 V，删除 matchloop 标记
+            del self.state.vec_data_list[match_index]
             return {}
         elif v_count == 1:
-            # 只有 1 个 V：MBGN 改成 IMATCH
-            for item in match_content:
-                if item.get("type") == "vector":
-                    new_data = []
-                    for vec in item["data"]:
-                        new_data.append((vec[0], vec[1], map_instruction("IMATCH"), match_param, vec[4], vec[5]))
-                    self.state.vec_data_list.append({"type": "vector", "data": new_data})
-                else:
-                    self.state.vec_data_list.append(item)
+            # 只有 1 个 V：MBGN 改成 IMATCH（原地修改）
+            v_idx = v_indices[0]
+            item = self.state.vec_data_list[v_idx]
+            new_data = []
+            for vec in item["data"]:
+                new_data.append((vec[0], vec[1], map_instruction("IMATCH"), match_param, vec[4], vec[5]))
+            self.state.vec_data_list[v_idx] = {"type": "vector", "data": new_data}
+            # 删除 matchloop 标记
+            del self.state.vec_data_list[match_index]
         else:
             # 多个 V：MBGN 放在前一个 V 上，MEND 放在最后一个 V 上
-            # 先检查前一个 V（可能在 vec_data_list 或 pending_vector 中）
-            prev_is_vector_in_list = (len(self.state.vec_data_list) > 0 and 
-                                      self.state.vec_data_list[-1].get("type") == "vector")
-            prev_is_vector_in_pending = (self.state.pending_vector is not None and 
+            # 检查 match_index 前面是否有 V
+            prev_is_vector_in_list = (match_index > 0 and 
+                                      self.state.vec_data_list[match_index - 1].get("type") == "vector")
+            prev_is_vector_in_pending = (match_index == 0 and 
+                                         self.state.pending_vector is not None and 
                                          len(self.state.pending_vector) > 0)
-            prev_is_vector = prev_is_vector_in_list or prev_is_vector_in_pending
             
-            if prev_is_vector:
-                # 前一个 V 可能在 vec_data_list 或 pending_vector 中
-                if prev_is_vector_in_list:
-                    prev_item = self.state.vec_data_list.pop()
+            # 处理 MBGN 指令的放置
+            mbgn_replaced_match = False
+            
+            if prev_is_vector_in_list:
+                # matchloop 前面有 V（在 vec_data_list 中）
+                prev_idx = match_index - 1
+                prev_item = self.state.vec_data_list[prev_idx]
+                if prev_item["type"] == "vector":
                     prev_data = prev_item["data"]
+                    
+                    has_instr = any(vec[2] and vec[2].strip() != "" for vec in prev_data)
+                    if has_instr:
+                        # 如果上一个指令是 RPT，减一后拿出一行放 MBGN
+                        if prev_data and prev_data[0][2] == map_instruction("Repeat") and int(prev_data[0][3]) > 1:
+                            old_rpt_data = []
+                            new_v_data = []
+                            for vec in prev_data:
+                                old_rpt_data.append((vec[0], vec[1], vec[2], int(vec[3]) - 1, vec[4], vec[5]))
+                                new_v_data.append((vec[0], vec[1], match_instr, match_param, match_label, vec[5]))
+                            self.state.vec_data_list[prev_idx] = {"type": "vector", "data": old_rpt_data}
+                            # 把 matchloop 标记替换为带 MBGN 的 V
+                            self.state.vec_data_list[match_index] = {"type": "vector", "data": new_v_data}
+                            mbgn_replaced_match = True
+                        else:
+                            # 已有其他指令，MBGN 替换 matchloop 标记位置（单独成一行）
+                            self.state.vec_data_list[match_index] = {
+                                "type": "instruction",
+                                "instr": match_instr,
+                                "param": match_param,
+                                "label": match_label
+                            }
+                            mbgn_replaced_match = True
+                    else:
+                        # 没有指令，附加 MBGN 到前一个 V
+                        new_data = []
+                        for vec in prev_data:
+                            new_data.append((vec[0], vec[1], match_instr, match_param, match_label, vec[5]))
+                        self.state.vec_data_list[prev_idx] = {"type": "vector", "data": new_data}
+                        # 删除 matchloop 标记
+                        del self.state.vec_data_list[match_index]
+                        # 索引需要调整
+                        v_indices = [i - 1 for i in v_indices]
                 else:
-                    # 在 pending_vector 中
-                    prev_data = self.state.pending_vector
-                    self.state.pending_vector = None
-                
+                    # 已有其他指令，MBGN 替换 matchloop 标记位置（单独成一行）
+                    self.state.vec_data_list[match_index] = {
+                        "type": "instruction",
+                        "instr": match_instr,
+                        "param": match_param,
+                        "label": match_label
+                    }
+                    mbgn_replaced_match = True
+            elif prev_is_vector_in_pending:
+                # matchloop 前面有 V（在 pending_vector 中）
+                prev_data = self.state.pending_vector
                 has_instr = any(vec[2] and vec[2].strip() != "" for vec in prev_data)
+                
                 if has_instr:
-                    # 如果上一个指令是RPT，就把它的指令的参数减一，然后拿出一行，放LI
+                    # 检查是否是 RPT，如果是就减一后拿出一行放 MBGN
                     if prev_data and prev_data[0][2] == map_instruction("Repeat") and int(prev_data[0][3]) > 1:
+                        # RPT 减一，保留在 pending_vector
                         old_rpt_data = []
                         new_v_data = []
                         for vec in prev_data:
                             old_rpt_data.append((vec[0], vec[1], vec[2], int(vec[3]) - 1, vec[4], vec[5]))
                             new_v_data.append((vec[0], vec[1], match_instr, match_param, match_label, vec[5]))
-                        self.state.vec_data_list.append({"type": "vector", "data": old_rpt_data})
-                        self.state.vec_data_list.append({"type": "vector", "data": new_v_data})
+                        self.state.pending_vector = old_rpt_data
+                        # 把 matchloop 标记替换为带 MBGN 的 V
+                        self.state.vec_data_list[match_index] = {"type": "vector", "data": new_v_data}
+                        mbgn_replaced_match = True
                     else:
-                        # 已有指令，先把原 V 放回，MBGN 单独成一行
-                        
-                        self.state.vec_data_list.append({"type": "vector", "data": prev_data})
-                        self.state.vec_data_list.append({
+                        # 已有其他指令，MBGN 替换 matchloop 标记位置（单独成一行）
+                        self.state.vec_data_list[match_index] = {
                             "type": "instruction",
                             "instr": match_instr,
                             "param": match_param,
                             "label": match_label
-                        })
+                        }
+                        mbgn_replaced_match = True
                 else:
+                    # 没有指令，附加 MBGN 到 pending_vector
                     new_data = []
-                    needAdd = False
                     for vec in prev_data:
-                        if vec[4] and not needAdd:
-                            self.state.vec_data_list.append({"type": "label", "label": vec[4]})
-                            needAdd = True
-                        new_data.append((vec[0], vec[1], match_instr, match_param, 
-                                         match_label, vec[5]))
-                    self.state.vec_data_list.append({"type": "vector", "data": new_data})
+                        new_data.append((vec[0], vec[1], match_instr, match_param, match_label, vec[5]))
+                    self.state.pending_vector = new_data
+                    # 删除 matchloop 标记
+                    del self.state.vec_data_list[match_index]
+                    # 索引需要调整
+                    v_indices = [i - 1 for i in v_indices]
             else:
-                self.state.vec_data_list.append({
+                # 前面不是 V，MBGN 替换 matchloop 标记位置（单独成一行）
+                self.state.vec_data_list[match_index] = {
                     "type": "instruction",
                     "instr": match_instr,
                     "param": match_param,
                     "label": match_label
-                })
+                }
+                mbgn_replaced_match = True
             
-            # 把 MatchLoop 内的元素加回去，最后一个 V 附加 MEND
+            # 最后一个 V 附加 MEND（原地修改）
+            last_v_idx = v_indices[-1]
+            item = self.state.vec_data_list[last_v_idx]
+            last_v_data = item["data"]
             mend_instr = map_instruction("MEND")
-            v_index = 0
-            for item in match_content:
-                if item.get("type") == "vector":
-                    v_index += 1
-                    if v_index == v_count:
-                        new_data = []
-                        for vec in item["data"]:
-                            new_data.append((vec[0], vec[1], mend_instr, "", vec[4], vec[5]))
-                        self.state.vec_data_list.append({"type": "vector", "data": new_data})
-                    else:
-                        self.state.vec_data_list.append(item)
+            
+            # 检查最后一个 V 是否已有微指令
+            last_has_instr = any(vec[2] and vec[2].strip() != "" for vec in last_v_data)
+            
+            if last_has_instr:
+                # 检查是否是 RPT，如果是就减一后拿出一行放 MEND
+                if last_v_data and last_v_data[0][2] == map_instruction("Repeat") and int(last_v_data[0][3]) > 1:
+                    # RPT 减一
+                    old_rpt_data = []
+                    new_mend_data = []
+                    for vec in last_v_data:
+                        old_rpt_data.append((vec[0], vec[1], vec[2], int(vec[3]) - 1, vec[4], vec[5]))
+                        new_mend_data.append((vec[0], vec[1], mend_instr, "", vec[4], vec[5]))
+                    self.state.vec_data_list[last_v_idx] = {"type": "vector", "data": old_rpt_data}
+                    # 在最后一个 V 后面插入带 MEND 的 V
+                    self.state.vec_data_list.insert(last_v_idx + 1, {"type": "vector", "data": new_mend_data})
                 else:
-                    self.state.vec_data_list.append(item)
+                    # 已有其他指令，MEND 单独成一行（插入到最后一个 V 后面）
+                    self.state.vec_data_list.insert(last_v_idx + 1, {
+                        "type": "instruction",
+                        "instr": mend_instr,
+                        "param": "",
+                        "label": ""
+                    })
+            else:
+                # 没有微指令，直接附加 MEND
+                new_data = []
+                for vec in last_v_data:
+                    new_data.append((vec[0], vec[1], mend_instr, "", vec[4], vec[5]))
+                self.state.vec_data_list[last_v_idx] = {"type": "vector", "data": new_data}
         
         # 如果回到最外层，写出
         if self.state.loop_deep == 0 and self.state.left_square_count == 0:
             self._flush_vec_data_list()
-            
             self.state.flush_pending_vector(self.handler)
         
         return {"is_matchloop_end": True}
@@ -1040,7 +1220,7 @@ class STILParserTransformer(Transformer):
             self.handler.on_procedure_call(key, "", self.state.vector_address)
             self.state.vector_address += 1
             self.handler.on_parse_error(f"警告：Procedure '{key}' 未找到", "")
-
+    
     # ========================== 其他微指令 ==========================
        
     def s_stmt(self, children: List) -> Dict[str, Any]:
@@ -1164,7 +1344,7 @@ class PatternStreamParserTransformer:
         self.used_signals: List[str] = []
         #self.pat_header: List[str] = []
         self.timings: Dict[str, List[TimingData]] = {}
-
+        
         # 共享状态
         self.state = ParserState()
         
@@ -1251,7 +1431,7 @@ class PatternStreamParserTransformer:
         header_buffer = ""
         buffer_lines = []
         is_pattern, first_v_found = False, False
-        
+
         try:
             with open(self.stil_file, 'r', encoding='utf-8') as f:
                 self.handler.on_log("正在解析文件头部（Signals/SignalGroups）...")
@@ -1345,8 +1525,8 @@ class PatternStreamParserTransformer:
             self.handler.on_parse_error(f"读取文件失败: {e}")
             return []
 
-            
 
+    
     def parse_patterns(self) -> int:
         """流式解析 Pattern 块
         
@@ -1386,6 +1566,8 @@ class PatternStreamParserTransformer:
                             if len(pattern_parser_list) == 0:
                                 self.handler.on_vector_start(pattern_burst_name)
                                 pattern_parser_list.append(pattern_burst_name)
+                            else:
+                                transformer.v_stmt([]) # 不是第一个pattern，写出上一个pattern最后一个
                             self.handler.on_label(pattern_burst_name)
                             continue
                         else:
@@ -1421,7 +1603,7 @@ class PatternStreamParserTransformer:
                         
                         buffer_lines.clear()
                
-            # 解析并转换
+            # 写出最后一个
             transformer.v_stmt([])
         except Exception as e:
             Logger.error(f"文件读取错误: {e}", exc_info=True)

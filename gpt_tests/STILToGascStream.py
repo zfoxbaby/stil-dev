@@ -102,6 +102,10 @@ class STILToGascStream(STILEventHandler):
         self.timings: Dict[str, List] = {}  # Timing 数据
         self.used_signals: List[str] = []   # Pattern 使用的信号列表
         self.signal_count = 0
+        
+        # 上一行每个信号/信号组的 WFC 值，用于补充缺少的信号值
+        # key: 信号/信号组名, value: WFC 字符串
+        self.last_vec_map: Dict[str, str] = {}
     
     def __del__(self):
         """析构时确保关闭文件流"""
@@ -150,11 +154,24 @@ class STILToGascStream(STILEventHandler):
         # 适配 Transformer 版本的 vec_data_list 格式
         # Transformer 返回: [(signal, data, instr, param, label, vector_address), ...]
         
-        # 构建向量字符串
-        vec_parts: List[str] = []
-        
+        # 构建当前 V 块的信号值映射
+        current_vec_map: Dict[str, str] = {}
         for pat_key, wfc_str, instr, param, label, vector_address in vec_data_list:
-            vec_parts.append(wfc_str)
+            current_vec_map[pat_key] = wfc_str
+            # 更新 last_vec_map（用于下一行补充）
+            self.last_vec_map[pat_key] = wfc_str
+        
+        # 按照 pat_header 的顺序构建向量字符串
+        # 如果当前 V 块没有提供某个信号的值，使用上一行的值
+        vec_parts: List[str] = []
+        for pat_key in self.pat_header:
+            if pat_key in current_vec_map:
+                vec_parts.append(current_vec_map[pat_key])
+            elif pat_key in self.last_vec_map:
+                vec_parts.append(self.last_vec_map[pat_key])
+            else:
+                # 没有上一行的值，使用 X
+                vec_parts.append("X")
         
         vec = "".join(vec_parts)
         
