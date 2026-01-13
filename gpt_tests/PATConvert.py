@@ -393,7 +393,7 @@ class PATConvert:
 
     def progress_callback(self, message):
         """Progress callback function with real-time vector counting"""
-        if "Fail" in message or "Failed" in message or "Warning" in message or "Error" in message:
+        if "Fail" in message or "Failed" in message or "Warning" in message or "Error" in message or "ERROR" in message:
             self.log_error(message)
         else:
             self.log(message)
