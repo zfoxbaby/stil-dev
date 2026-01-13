@@ -243,10 +243,12 @@ class STILToVCTStream(STILEventHandler):
         
         # 添加原始波形表信息
         for wft_name, timing_list in self.timings.items():
-            lines.append(f";  Timing [{wft_name}] ({len(timing_list)} entries)")
+            lines.append(f";  Timing Mapping [{wft_name}] ({len(timing_list)} entries)")
             for td in timing_list:
                 map_wfc = td.vector_replacement;
-                if map_wfc:
+                # 如果替换字符与原始字符不同，则输出
+                is_different_wfc = td.vector_replacement != td.wfc; 
+                if is_different_wfc:
                     timing_str = f";    {td.signal}, {td.period}, {td.wfc}{("="+map_wfc) if map_wfc else ''}, {td.t1}, {td.e1}"
                     if td.t2:
                         timing_str += f", {td.t2}, {td.e2}"
@@ -263,13 +265,13 @@ class STILToVCTStream(STILEventHandler):
         
         timing_content = self.timing_formatter.format_all_timings(self.timings)
         
-        if timing_content:
-            lines.append(";    Converted timing maybe not correct, Please check the timing definitions:")
-            lines.append(";    DUD/UDU -> P/N; UD/DU -> 01 DNRZ; D -> 0; U -> 1; P -> Q; Other -> Other")
-            lines.append(";")
-            timing_lines = timing_content.split("\n")
-            prefixed_lines = [";  " + line for line in timing_lines]
-            lines.extend(prefixed_lines)
+        # if timing_content:
+        #     lines.append(";    Converted timing maybe not correct, Please check the timing definitions:")
+        #     lines.append(";    DUD/UDU -> P/N; UD/DU -> 01 DNRZ; D -> 0; U -> 1; P -> Q; Other -> Other")
+        #     lines.append(";")
+        #     timing_lines = timing_content.split("\n")
+        #     prefixed_lines = [";  " + line for line in timing_lines]
+        #     lines.extend(prefixed_lines)
         
         lines.append("")
         
@@ -335,7 +337,7 @@ class STILToVCTStream(STILEventHandler):
         
         lines = [
             ";",
-            ";       driver/receiver pin to DUT signal assignments:",
+            ";   driver/receiver pin to DUT signal assignments:",
             ";"
         ]
          

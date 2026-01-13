@@ -165,7 +165,7 @@ class STILToGascStream(STILEventHandler):
         # 转换向量字符（子类可覆盖）
         vec = self.transform_vec_char(vec)
 
-        formatted_instr = vec_data_list[0][2] + " " + vec_data_list[0][3]
+        formatted_instr = vec_data_list[0][2] + " " + str(vec_data_list[0][3])
         
         # 格式化波形表
         wft = self.current_wft if self.wft_pending else ""

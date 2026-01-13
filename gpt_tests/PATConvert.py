@@ -169,7 +169,7 @@ class PATConvert:
     def select_source_file(self):
         file_path = filedialog.askopenfilename(
             title="Select Source File",
-            filetypes=[("STIL/WGL files", "*.stil *.wgl"), ("All files", "*.*")]
+            filetypes=[("STIL/WGL files", "*.stil"), ("All files", "*.*")]
         )
         if file_path:
             self.source_var.set(file_path)
@@ -281,6 +281,7 @@ class PATConvert:
                     used_signals = self.vct_converter.read_stil_signals(print_log=True)
                     mapping = {signal: [i] for i, signal in enumerate(used_signals)}
                     self.vct_converter.set_channel_mapping(mapping)
+                    self.log_error("没有将设备通道与Pin角映射，当前从0通道开始自动映射，可能无法在BIB板上生效！")
                 else:
                     return
             # # VCT模式：重新读取信号并自动重新映射

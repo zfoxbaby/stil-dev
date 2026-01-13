@@ -133,6 +133,7 @@ class ParserState:
         self.macrodefs: Dict[str, str] = {}
         # 如果出现Call、Macro会出现替换功能，Key是信号/信号组，Value是Vector
         self.replace_vector_list : Dict[str, str] = {}
+        self.replace_vector_on = False
         # [header name, header content]
         self.headers: Dict[str, str] = {}
         # [signal name, signal type]
@@ -433,7 +434,7 @@ class STILParserTransformer(Transformer):
                 # 如果存在需要替换的 Vectors，则替换（Call/Macro 指令的参数中）
                 replace_signal_vectors = self.state.replace_vector_list.get(item.get("signal"), "")
                 vectors = item.get("data")
-                if replace_signal_vectors:
+                if self.state.replace_vector_on and replace_signal_vectors:
                     vectors = replace_signal_vectors
                 # 6 元组：(signal, data, instr, param, label, vector_address)
                 vec_data.append((item.get("signal"), vectors, 
@@ -470,7 +471,7 @@ class STILParserTransformer(Transformer):
                 # 到这里的 instruction 已经在 close_loop_block/close_matchloop_block 中
                 # 判断过不能附加到前一个 V，所以直接单独写出
                 # 先写出 pending_vector
-                # self.state.flush_pending_vector(self.handler)
+                self.state.flush_pending_vector(self.handler)
                 instr = item.get("instr", "")
                 param = item.get("param", "")
                 label = item.get("label", "")
@@ -564,6 +565,7 @@ class STILParserTransformer(Transformer):
         loop_content = []  # Loop 内的所有元素
         loop_info = None
         
+        #找到最近的一个loop instruction
         while len(self.state.vec_data_list) > 0:
             item = self.state.vec_data_list.pop()
             if item.get("type") == "loop" and item.get("loop_deep") == self.state.loop_deep:
@@ -594,15 +596,18 @@ class STILParserTransformer(Transformer):
                     # 给 V 附加 RPT
                     new_data = []
                     for vec in item["data"]:
+                        # 减+
                         new_data.append((vec[0], vec[1],
-                         map_instruction("Repeat"), loop_param, loop_label, vec[5]))
+                         map_instruction("Repeat"), int(loop_param) + 1, loop_label, vec[5]))
                     self.state.vec_data_list.append({"type": "vector", "data": new_data})
+                    # 因为RPT减去了一行，这里加一行
+                    # self.state.vec_data_list.append({"type": "vector", "data": item["data"]});
                 else:
                     # 其他指令保持原样
                     self.state.vec_data_list.append(item)
         else:
             # 情况 2/4：多个 V，LI 放在 loop 前面的 V 上，JNI 放在最后一个 V 上
-            # 先检查 loop 前面是否有 V（可能在 vec_data_list 或 pending_vector 中）
+            # 先检查 loop 前面是否有 V（嵌套循环再 vec_data_list 中 否则再pending_vector 中）
             prev_is_vector_in_list = (len(self.state.vec_data_list) > 0 and 
                                       self.state.vec_data_list[-1].get("type") == "vector")
             prev_is_vector_in_pending = (self.state.pending_vector is not None and 
@@ -623,15 +628,24 @@ class STILParserTransformer(Transformer):
                 # 检查前一个 V 是否已有指令
                 has_instr = any(vec[2] and vec[2].strip() != "" for vec in prev_data)
                 if has_instr:
-                    # 已有指令，先把原 V 放回，LI 单独成一行
-                    self.state.pending_vector = prev_data
-                    self.state.vec_data_list.append({"type": "vector", "data": prev_data})
-                    self.state.vec_data_list.append({
-                        "type": "instruction",
-                        "instr": loop_instr,
-                        "param": loop_param,
-                        "label": loop_label
-                    })
+                    # 如果上一个指令是RPT，就把它的指令的参数减一，然后拿出一行，放LI
+                    if prev_data and prev_data[0][2] == map_instruction("Repeat") and int(prev_data[0][3]) > 1:
+                        old_rpt_data = []
+                        new_v_data = []
+                        for vec in prev_data:
+                            old_rpt_data.append((vec[0], vec[1], vec[2], int(vec[3]) - 1, vec[4], vec[5]))
+                            new_v_data.append((vec[0], vec[1], loop_instr, loop_param, loop_label, vec[5]))
+                        self.state.vec_data_list.append({"type": "vector", "data": old_rpt_data})
+                        self.state.vec_data_list.append({"type": "vector", "data": new_v_data})
+                    else:
+                        # 已有指令，先把原 V 放回，LI 单独成一行
+                        self.state.vec_data_list.append({"type": "vector", "data": prev_data})
+                        self.state.vec_data_list.append({
+                            "type": "instruction",
+                            "instr": loop_instr,
+                            "param": loop_param,
+                            "label": loop_label
+                        })
                 else:
                     # 没有指令，附加 LI
                     new_data = []
@@ -673,7 +687,7 @@ class STILParserTransformer(Transformer):
         if self.state.loop_deep == 0 and self.state.left_square_count == 0:
             self._flush_vec_data_list()
             # 只有多 V 情况（有 LI+JNI）才置空 pending_vector
-            # 单 V 情况变成 RPT，那个 V 仍可作为 pending_vector
+            # 单 V 情况变成 RPT，此时后面是Loop就需要拆出一个V，所以在pending_vector中保留
             if v_count > 1:
                 self.state.flush_pending_vector(self.handler)
         
@@ -779,21 +793,31 @@ class STILParserTransformer(Transformer):
                     prev_item = self.state.vec_data_list.pop()
                     prev_data = prev_item["data"]
                 else:
-                    # 在 pending_vector 中（与 Loop 一致，不清空）
+                    # 在 pending_vector 中
                     prev_data = self.state.pending_vector
                     self.state.pending_vector = None
                 
                 has_instr = any(vec[2] and vec[2].strip() != "" for vec in prev_data)
                 if has_instr:
-                    # 已有指令，先把原 V 放回，MBGN 单独成一行
-                    self.state.pending_vector = prev_data
-                    self.state.vec_data_list.append({"type": "vector", "data": prev_data})
-                    self.state.vec_data_list.append({
-                        "type": "instruction",
-                        "instr": match_instr,
-                        "param": match_param,
-                        "label": match_label
-                    })
+                    # 如果上一个指令是RPT，就把它的指令的参数减一，然后拿出一行，放LI
+                    if prev_data and prev_data[0][2] == map_instruction("Repeat") and int(prev_data[0][3]) > 1:
+                        old_rpt_data = []
+                        new_v_data = []
+                        for vec in prev_data:
+                            old_rpt_data.append((vec[0], vec[1], vec[2], int(vec[3]) - 1, vec[4], vec[5]))
+                            new_v_data.append((vec[0], vec[1], match_instr, match_param, match_label, vec[5]))
+                        self.state.vec_data_list.append({"type": "vector", "data": old_rpt_data})
+                        self.state.vec_data_list.append({"type": "vector", "data": new_v_data})
+                    else:
+                        # 已有指令，先把原 V 放回，MBGN 单独成一行
+                        
+                        self.state.vec_data_list.append({"type": "vector", "data": prev_data})
+                        self.state.vec_data_list.append({
+                            "type": "instruction",
+                            "instr": match_instr,
+                            "param": match_param,
+                            "label": match_label
+                        })
                 else:
                     new_data = []
                     needAdd = False
@@ -831,10 +855,8 @@ class STILParserTransformer(Transformer):
         # 如果回到最外层，写出
         if self.state.loop_deep == 0 and self.state.left_square_count == 0:
             self._flush_vec_data_list()
-            # 只有多 V 情况（有 MBGN+MEND）才置空 pending_vector
-            # 单 V 情况变成 IMATCH，那个 V 仍可作为 pending_vector
-            if v_count > 1:
-                self.state.flush_pending_vector(self.handler)
+            
+            self.state.flush_pending_vector(self.handler)
         
         return {"is_matchloop_end": True}
 
@@ -927,19 +949,51 @@ class STILParserTransformer(Transformer):
 
         tokens = [c.value for c in children if isinstance(c, Token)]
         proc_name = tokens[1] if len(tokens) > 1 else ""
+        
+        # pre_data = self.state.pending_vector
+        # if pre_data:
+        #     has_instr = any(vec[2] and vec[2].strip() != "" for vec in pre_data)
+        #     if has_instr:
+        #         self.state.vec_data_list.append({"type": "vector", "data": pre_data})
+        #         self.state.vec_data_list.append({
+        #             "type": "instruction",
+        #             "instr": "CALL",
+        #             "param": proc_name,
+        #             "label": self.state.curr_label
+        #         })
+
+        #     else:
+        #         new_data_list = []
+        #         for vec_data in self.state.pending_vector:
+        #             new_data_list.append((vec_data[0], vec_data[1], "CALL", proc_name, vec_data[4], vec_data[5]))
+        #         self.state.vec_data_list.append({"type": "vector", "data": new_data_list})
+        #     self.state.pending_vector = None
+        # else:
+        #     self.state.vec_data_list.append({
+        #             "type": "instruction",
+        #             "instr": "CALL",
+        #             "param": proc_name,
+        #             "label": self.state.curr_label
+        #         })
+        # self.state.handle_curr()
+        # self._flush_vec_data_list()
+
         # 记录当前的WFT的名字
+        self.state.replace_vector_on = True
         current_wft = self.state.current_wft
         self._handle_children_pattern(proc_name, self.state.procedures)
 
         # 在切换 WFT 之前，先写出 pending_vector（用旧的 WFT）
         self.state.flush_pending_vector(self.handler)
         
+        # call结束后，恢复替换
+        self.state.replace_vector_on = False
+        self.state.replace_vector_list = {}
+
         # 处理完Call指令以后，要还原成原来的WFT
         self.state.current_wft = current_wft
         self.handler.on_waveform_change(current_wft)
 
-        # call结束后，恢复替换
-        self.state.replace_vector_list = {}
         return {}
     
     def macro_stmt(self, children: List) -> Dict[str, Any]:
@@ -952,11 +1006,12 @@ class STILParserTransformer(Transformer):
             else:
                 continue
         
-        
         tokens = [c.value for c in children if isinstance(c, Token)]
         macrodef_name = tokens[1] if len(tokens) > 1 else ""
+        self.state.replace_vector_on = True
         self._handle_children_pattern(macrodef_name, self.state.macrodefs)
         # macro结束后，恢复替换
+        self.state.replace_vector_on = False
         self.state.replace_vector_list = {}
         return {}
 
@@ -1107,7 +1162,7 @@ class PatternStreamParserTransformer:
 
         # 解析结果存储
         self.used_signals: List[str] = []
-        self.pat_header: List[str] = []
+        #self.pat_header: List[str] = []
         self.timings: Dict[str, List[TimingData]] = {}
 
         # 共享状态
@@ -1195,8 +1250,7 @@ class PatternStreamParserTransformer:
         
         header_buffer = ""
         buffer_lines = []
-        is_pattern = False
-        first_v_found = False
+        is_pattern, first_v_found = False, False
         
         try:
             with open(self.stil_file, 'r', encoding='utf-8') as f:
@@ -1360,22 +1414,18 @@ class PatternStreamParserTransformer:
                             # 触发错误回调
                             Logger.warning(f"解析失败(LarkError): {e}")
                             self.handler.on_parse_error(str(e), statement_buffer)
-                            if self.debug:
-                                print(f"解析失败: {statement_buffer[:50]}...")
+                           
                         except Exception as e:
                             Logger.error(f"解析异常: {e}", exc_info=True)
                             self.handler.on_parse_error(str(e), "")
-                            if self.debug:
-                                print(f"其他错误: {e}")
                         
                         buffer_lines.clear()
+               
             # 解析并转换
             transformer.v_stmt([])
         except Exception as e:
             Logger.error(f"文件读取错误: {e}", exc_info=True)
             self.handler.on_parse_error(str(e), "")
-            if self.debug:
-                print(f"文件读取错误: {e}")
         
         # 5. 触发解析完成回调
         self.handler.on_parse_complete(self.state.vector_count)
