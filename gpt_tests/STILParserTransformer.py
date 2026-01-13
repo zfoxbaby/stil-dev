@@ -460,8 +460,8 @@ class STILParserTransformer(Transformer):
             self.parser.stop()
             self.handler.on_parse_complete(self.state.vector_count)
             self.handler.on_parse_error(
-                f"机型不支持 '{self.state.curr_instr}' 指令，转换中止！！！", 
-                f"不支持的指令列表: {DISABLED_INSTRUCTIONS}"
+                f"Unsupported instruction '{self.state.curr_instr}', aborted!", 
+                f"Disabled: {DISABLED_INSTRUCTIONS}"
             )
             return {}
         
@@ -1058,7 +1058,7 @@ class STILParserTransformer(Transformer):
                 map_instruction("BreakPoint"), "", vec_data[4], vec_data[5]))
             elif vec_data[2].strip() != "":
                 # 包含微指令错误
-                self.handler.on_parse_error("BreakPoint 块中间包含微指令", "")
+                self.handler.on_parse_error("BreakPoint block contains instruction", "")
             else:
                 new_list.append((vec_data[0], vec_data[1],
                     map_instruction("BreakPoint"), "E", vec_data[4], vec_data[5]))
@@ -1212,14 +1212,14 @@ class STILParserTransformer(Transformer):
                 transformer.state.vector_count
                 # self.state.vector_count += 
             except LarkError as e:
-                Logger.error(f"Procedure '{key}' 解析失败: {e}", exc_info=True)
-                self.handler.on_parse_error(f"Procedure '{key}' 解析失败: {e}", "")
+                Logger.error(f"Procedure '{key}' parse failed: {e}", exc_info=True)
+                self.handler.on_parse_error(f"Procedure '{key}' parse failed: {e}", "")
                 self.handler.on_procedure_call(key, "", self.state.vector_address)
                 self.state.vector_address += 1
         else:
             self.handler.on_procedure_call(key, "", self.state.vector_address)
             self.state.vector_address += 1
-            self.handler.on_parse_error(f"警告：Procedure '{key}' 未找到", "")
+            self.handler.on_parse_error(f"Warning: Procedure '{key}' not found", "")
     
     # ========================== 其他微指令 ==========================
        
@@ -1249,7 +1249,7 @@ class STILParserTransformer(Transformer):
         elif len(children) == 2 and isinstance(children[0], Token) and isinstance(children[1], Token):
             instr = children[0].value.strip()
             param = children[1].value.strip()
-        self.handler.on_parse_error("Unknown 语句", children[0].value.strip())
+        self.handler.on_parse_error("Unknown statement", children[0].value.strip())
         self._handle_micro_instruction(instr, param)
         return {}
 
@@ -1389,10 +1389,10 @@ class PatternStreamParserTransformer:
                 import_paths=[grammar_base],
                 propagate_positions=True
             )
-            self.handler.on_log("Pattern 语句解析器初始化成功 (1.0 版本)")
+            self.handler.on_log("Pattern parser initialized (v1.0)")
         except Exception as e:
-            Logger.error(f"Pattern 语句解析器初始化失败: {e}", exc_info=True)
-            self.handler.on_log(f"Pattern 语句解析器初始化失败: {e}")
+            Logger.error(f"Parser init failed: {e}", exc_info=True)
+            self.handler.on_log(f"Parser init failed: {e}")
             raise
     
     def stop(self) -> None:
@@ -1419,13 +1419,13 @@ class PatternStreamParserTransformer:
         with open(self.stil_file, 'r', encoding='utf-8') as f:
             first_line = f.readline().strip()
             if not first_line.startswith('STIL 1.0;'):
-                self.handler.on_parse_error("选择的文件并非STIL文件，无法解析...")
+                self.handler.on_parse_error("Invalid STIL file")
                 return 0
                 
-        self.handler.on_log("开始读取STIL文件...")
+        self.handler.on_log("Reading STIL file...")
 
         if not os.path.exists(self.stil_file):
-            self.handler.on_parse_error("文件不存在 - {self.stil_file}")
+            self.handler.on_parse_error(f"File not found: {self.stil_file}")
             return []
         
         header_buffer = ""
@@ -1434,11 +1434,11 @@ class PatternStreamParserTransformer:
 
         try:
             with open(self.stil_file, 'r', encoding='utf-8') as f:
-                self.handler.on_log("正在解析文件头部（Signals/SignalGroups）...")
+                self.handler.on_log("Parsing header...")
                 
                 for index, line in enumerate(f):
                     if index == 0 and not line.strip().startswith('STIL'):
-                        self.handler.on_log("选择的文件并非STIL文件，无法解析...")
+                        self.handler.on_log("Invalid STIL file")
                         return []
                     
                     if self._stop_requested:
@@ -1454,13 +1454,13 @@ class PatternStreamParserTransformer:
                         
                         if print_log:
                             signal_count = len(self.state.signal_dict)
-                            self.handler.on_log(f"找到 {signal_count    } 个信号定义")
+                            self.handler.on_log(f"Found {signal_count} signals")
                             signal_group_count = len(self.state.signal_group)
-                            self.handler.on_log(f"找到 {signal_group_count} 个信号组")
+                            self.handler.on_log(f"Found {signal_group_count} signal groups")
                             timing_count = len(self.get_timings())
-                            self.handler.on_log(f"找到 {timing_count} 个波形表定义")
+                            self.handler.on_log(f"Found {timing_count} waveform tables")
                             for wft_name, timing_list in self.get_timings().items():
-                                self.handler.on_log(f"  波形表 [{wft_name}] 包含 {len(timing_list)} 条Timing定义:")
+                                self.handler.on_log(f"  WFT [{wft_name}]: {len(timing_list)} timing defs")
                                 for td in timing_list:
                                     map_wfc = td.vector_replacement;
                                     timing_str = f"    {td.signal}, {td.period}, {td.wfc}{("="+map_wfc) if map_wfc else ''},"
@@ -1499,8 +1499,8 @@ class PatternStreamParserTransformer:
                                 
                                 buffer_lines.clear()
                         except Exception as e:
-                            Logger.error(f"读取文件失败: {e}", exc_info=True)
-                            self.handler.on_parse_error(f"读取文件失败: {e}")
+                            Logger.error(f"File read error: {e}", exc_info=True)
+                            self.handler.on_parse_error(f"File read error: {e}")
             
             self.used_signals = []
             for key in self.pat_header:
@@ -1510,7 +1510,7 @@ class PatternStreamParserTransformer:
                     self.used_signals.append(key)
             
             if print_log:
-                self.handler.on_log(f"STIL中使用了 {len(self.used_signals)} 个信号:")
+                self.handler.on_log(f"Using {len(self.used_signals)} signals:")
                 for i, sig in enumerate(self.used_signals):
                     self.handler.on_log(f"  {i+1}. {sig}")
             
@@ -1518,11 +1518,11 @@ class PatternStreamParserTransformer:
         
         except LarkError as e:
             # 触发错误回调
-            Logger.error(f"读取文件失败(LarkError): {e}", exc_info=True)
-            self.handler.on_parse_error(f"读取文件失败: {e}")
+            Logger.error(f"File read error (LarkError): {e}", exc_info=True)
+            self.handler.on_parse_error(f"File read error: {e}")
         except Exception as e:
-            Logger.error(f"读取文件失败: {e}", exc_info=True)
-            self.handler.on_parse_error(f"读取文件失败: {e}")
+            Logger.error(f"File read error: {e}", exc_info=True)
+            self.handler.on_parse_error(f"File read error: {e}")
             return []
 
 
@@ -1558,7 +1558,7 @@ class PatternStreamParserTransformer:
                         buffer_lines.clear()
                         pattern_burst_name = line.strip().split(' ')[1]
                         if pattern_burst_name in pattern_parser_list:
-                            self.handler.on_parse_error(f"Pattern 块 {pattern_burst_name} 重复定义")
+                            self.handler.on_parse_error(f"Pattern '{pattern_burst_name}' duplicated")
                             return
                         if (pattern_burst_name in
                          self.state.pattern_burst_dict[self.state.pattern_burst_name]["PatList"]):

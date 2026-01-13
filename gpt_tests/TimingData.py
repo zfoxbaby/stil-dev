@@ -99,7 +99,7 @@ class TimingData:
         for td in self.twas:
             td_pattern = td.get_edge_pattern()
             if td_pattern not in self.wfcs_mappint:
-                handler.on_parse_error(f"Warning: {td.signal}:{td.wfc}的边沿模式{td_pattern}无法正确计算边沿格式")
+                handler.on_parse_error(f"Warning: Invalid edge pattern {td_pattern} for {td.signal}:{td.wfc}")
                 td.vector_replacement = "X"
                 continue
             else:

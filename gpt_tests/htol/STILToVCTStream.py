@@ -118,11 +118,11 @@ class STILToVCTStream(STILEventHandler):
                         channels.append(channel)
                     else:
                         if self.progress_callback:
-                            self.progress_callback(f"警告：通道号 {channel} 超出范围(0-255)，已忽略")
+                            self.progress_callback(f"Warning: Channel {channel} out of range (0-255)")
                 except ValueError:
-                    Logger.warning(f"警告：'{part}' 不是有效的数字，已忽略")
+                    Logger.warning(f"Warning: '{part}' is not a valid number")
                     if self.progress_callback:
-                        self.progress_callback(f"警告：'{part}' 不是有效的数字，已忽略")
+                        self.progress_callback(f"Warning: '{part}' is not a valid number")
         
         return channels
 
@@ -297,7 +297,7 @@ class STILToVCTStream(STILEventHandler):
         
         if not timing_content:
             if self.progress_callback:
-                self.progress_callback("警告：没有 Timing 信息，跳过 .rex 文件生成")
+                self.progress_callback("Warning: No timing info, skip .rex file")
             return
         
         try:
@@ -306,11 +306,11 @@ class STILToVCTStream(STILEventHandler):
                 f.write("\n")
             
             if self.progress_callback:
-                self.progress_callback(f"REX文件生成完成: {rex_file}")
+                self.progress_callback(f"REX file generated: {rex_file}")
         except Exception as e:
-            Logger.error(f"REX文件生成失败: {e}", exc_info=True)
+            Logger.error(f"REX generation failed: {e}", exc_info=True)
             if self.progress_callback:
-                self.progress_callback(f"REX文件生成失败: {e}")
+                self.progress_callback(f"REX generation failed: {e}")
     
     def generate_vct_warnings(self, warnings: List[str] = None) -> str:
         """生成VCT文件警告部分（第二部分）"""
@@ -707,7 +707,7 @@ class STILToVCTStream(STILEventHandler):
         update_interval = 2000 if vector_count <= 10000 else 5000
         if self.progress_callback and vector_count % update_interval == 0:
             progress = read_size / self.file_size * 100 if self.file_size > 0 else 100
-            self.progress_callback(f"已处理 {vector_count:,} 个向量块, 进度:{progress:.1f}%...")
+            self.progress_callback(f"Processed {vector_count:,} vectors, {progress:.1f}%...")
            
         if vector_count % 10000 == 0:
              self.output_file.flush()
@@ -721,7 +721,7 @@ class STILToVCTStream(STILEventHandler):
             line = self._format_micro_only_line("Call", proc_name, rradr, vector_address)
             self.output_file.write(line + "\n")
             if self.progress_callback:
-                self.progress_callback(f"警告：Procedure '{proc_name}' 未找到，生成 CALL 指令")
+                self.progress_callback(f"Warning: Procedure '{proc_name}' not found")
     
     def on_micro_instruction(self, label: str, instr: str, param: str = "", vector_address: int = 0) -> None:
         """其他微指令（Stop, Goto, IddqTestPoint 等）"""
@@ -741,7 +741,7 @@ class STILToVCTStream(STILEventHandler):
     def on_parse_complete(self, vector_count: int) -> None:
         """解析完成"""
         if self.progress_callback:
-            self.progress_callback(f"Pattern 解析完成，共 {vector_count} 个向量，进度100%")
+            self.progress_callback(f"Pattern parsed, {vector_count} vectors, 100%")
     
     def on_log(self, log: str) -> None:
         """解析完成"""
@@ -752,9 +752,9 @@ class STILToVCTStream(STILEventHandler):
         """解析错误"""
         if self.progress_callback:
             if statement:
-                self.progress_callback(f"VEC:{self.pattern_parser0.state.vector_count}解析错误: {error_msg}\n语句: {statement[:100]}...")
+                self.progress_callback(f"VEC:{self.pattern_parser0.state.vector_count} Error: {error_msg}\n{statement[:100]}...")
             else:
-                self.progress_callback(f"VEC:{self.pattern_parser0.state.vector_count}解析错误: {error_msg}")
+                self.progress_callback(f"VEC:{self.pattern_parser0.state.vector_count} Error: {error_msg}")
         Logger.error(error_msg, statement)
     
     def generate_vct_vector_section(self, output_file) -> int:
@@ -789,7 +789,7 @@ class STILToVCTStream(STILEventHandler):
 
         # 初始化 Pattern 解析器并开始解析
         if self.progress_callback:
-            self.progress_callback("开始解析 Pattern 数据...")
+            self.progress_callback("Parsing patterns...")
         
         # 解析 Pattern（通过回调写入）
         vector_count = self.pattern_parser0.parse_patterns()
@@ -806,7 +806,7 @@ class STILToVCTStream(STILEventHandler):
             0: 成功, -1: 失败或被停止
         """
         if self.progress_callback:
-            self.progress_callback("开始生成VCT文件...")
+            self.progress_callback("Generating VCT file...")
                 # 获取文件大小
         self.file_size = os.path.getsize(self.stil_file) if os.path.exists(self.stil_file) else 0
         size_mb = self.file_size / (1024 * 1024)
@@ -817,14 +817,14 @@ class STILToVCTStream(STILEventHandler):
                     return -1
                     
                 if self.progress_callback:
-                    self.progress_callback("生成文件头...")
+                    self.progress_callback("Writing header...")
                 f.write(self.generate_vct_header())
                 
                 if self._stop_requested:
                     return -1
                     
                 if self.progress_callback:
-                    self.progress_callback("生成Timing定义...")
+                    self.progress_callback("Writing timing defs...")
                 f.write(self.generate_vct_timing_section())
                 
                 # 生成 .rex 文件
@@ -834,7 +834,7 @@ class STILToVCTStream(STILEventHandler):
                     return -1
                     
                 if self.progress_callback:
-                    self.progress_callback("生成DRVR定义...")
+                    self.progress_callback("Writing DRVR defs...")
                 f.write(self.generate_vct_drvr_section())
                 f.write("\n")
                 
@@ -842,27 +842,27 @@ class STILToVCTStream(STILEventHandler):
                     return -1
                     
                 if self.progress_callback:
-                    self.progress_callback("生成Vector数据...")
+                    self.progress_callback("Writing vectors...")
                 vector_count = self.generate_vct_vector_section(f)
                 
                 # 检查是否被停止
                 if self._stop_requested:
                     if self.progress_callback:
-                        self.progress_callback(f"转换已停止，已处理 {vector_count} 个向量块")
+                        self.progress_callback(f"Stopped, {vector_count} vectors processed")
                     return -1
                 
                 if self.progress_callback:
-                    self.progress_callback(f"Vector数据生成完成，共 {vector_count} 个向量块")
+                    self.progress_callback(f"Vectors done, {vector_count} total")
             
             if self.progress_callback:
-                self.progress_callback(f"VCT文件生成完成: {self.target_file}")
+                self.progress_callback(f"VCT file done: {self.target_file}")
             
             return 0
             
         except Exception as e:
             if self.progress_callback:
                 # 堆栈信息也打印到日志里面
-                Logger.error(f"VCT文件生成失败: {e}", exc_info=True)
-                self.progress_callback(f"VCT文件生成失败: {e}")
+                Logger.error(f"VCT generation failed: {e}", exc_info=True)
+                self.progress_callback(f"VCT generation failed: {e}")
             return -1
 

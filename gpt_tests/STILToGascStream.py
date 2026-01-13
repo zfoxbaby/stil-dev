@@ -117,7 +117,7 @@ class STILToGascStream(STILEventHandler):
         if self.pattern_parser:
             self.pattern_parser.stop()
         if self.progress_callback:
-            self.progress_callback("用户请求停止转换...")
+            self.progress_callback("User requested stop...")
 
     # ========================== STILEventHandler 回调实现 ==========================
     
@@ -196,7 +196,7 @@ class STILToGascStream(STILEventHandler):
         update_interval = 2000 if self.vector_count <= 10000 else 5000
         if self.progress_callback and self.vector_count % update_interval == 0:
             progress = self.read_size / self.file_size * 100 if self.file_size > 0 else 100
-            self.progress_callback(f"已处理 {self.vector_count:,} 个向量块, 进度:{progress:.1f}%...")
+            self.progress_callback(f"Processed {self.vector_count:,} vectors, {progress:.1f}%...")
     
     def on_procedure_call(self, proc_name: str, proc_content: str = "", vector_address: int = 0) -> None:
         """Call 指令 - 已在解析器中展开"""
@@ -218,7 +218,7 @@ class STILToGascStream(STILEventHandler):
         """解析完成"""
         self.output_file.write("}\n")
         if self.progress_callback:
-            self.progress_callback(f"已处理 {vector_count:,} 个向量块，进度:100%...")
+            self.progress_callback(f"Processed {vector_count:,} vectors, 100%")
     
     def on_log(self, log: str) -> None:
         """解析完成"""
@@ -227,7 +227,7 @@ class STILToGascStream(STILEventHandler):
 
     def on_parse_error(self, error_msg: str, statement: str = "") -> None:
         """解析错误"""
-        self.progress_callback(f"解析错误: {error_msg}\n语句: {statement[:100]}...")
+        self.progress_callback(f"Parse error: {error_msg}\n{statement[:100]}...")
         Logger.error(error_msg, statement)
     
     # ========================== GASC 格式化方法 ==========================
@@ -262,20 +262,20 @@ class STILToGascStream(STILEventHandler):
         self.vector_count = 0
         
         if self.progress_callback:
-            self.progress_callback("开始解析STIL文件...")
+            self.progress_callback("Parsing STIL file...")
         
         # 获取文件大小
         self.file_size = os.path.getsize(self.stil_file) if os.path.exists(self.stil_file) else 0
         size_mb = self.file_size / (1024 * 1024)
         
         if self.progress_callback:
-            self.progress_callback(f"文件大小: {size_mb:.1f}MB")
-            self.progress_callback(f"打开文件: {self.stil_file}")
+            self.progress_callback(f"File size: {size_mb:.1f}MB")
+            self.progress_callback(f"Opening: {self.stil_file}")
         
         try:
             # 1. 初始化 Pattern 解析器，读取信号信息（包括 pat_header）
             if self.progress_callback:
-                self.progress_callback("开始提取信号/组/Timing内容...")
+                self.progress_callback("Extracting signals/timing...")
             
             self.pattern_parser = PatternStreamParserTransformer(self.stil_file, self, self.debug)
             self.used_signals = self.pattern_parser.read_stil_overview(
@@ -283,12 +283,12 @@ class STILToGascStream(STILEventHandler):
             
             if self._stop_requested:
                 if self.progress_callback:
-                    self.progress_callback("转换已被用户停止")
+                    self.progress_callback("Conversion stopped by user")
                 return -1
             
             if not self.used_signals:
                 if self.progress_callback:
-                    self.progress_callback("未能提取到信号信息")
+                    self.progress_callback("No signal info found")
                 return -1
             
             # 获取解析结果
@@ -299,7 +299,7 @@ class STILToGascStream(STILEventHandler):
             self.signal_count = len(self.used_signals)
             
             if self.progress_callback:
-                self.progress_callback(f"Pattern 使用了 {self.signal_count} 个信号")
+                self.progress_callback(f"Pattern uses {self.signal_count} signals")
             
             # 2. 写入所有头部信息（文件流已在构造时打开）
             if not self.output_file:
@@ -336,8 +336,8 @@ class STILToGascStream(STILEventHandler):
                 self.output_file.write("}\n\n")
             
             if self.progress_callback:
-                self.progress_callback("信号/组/Timing转换完成...")
-                self.progress_callback("开始转换Pattern内容...")
+                self.progress_callback("Signals/Timing done...")
+                self.progress_callback("Converting patterns...")
             
             # 3. 解析并写入 Pattern
             self.pattern_parser.parse_patterns()
@@ -347,17 +347,17 @@ class STILToGascStream(STILEventHandler):
             
             if self._stop_requested:
                 if self.progress_callback:
-                    self.progress_callback(f"转换已停止！总共处理了 {self.vector_count} 个向量块")
+                    self.progress_callback(f"Stopped! {self.vector_count} vectors processed")
                 return -1
             else:
                 if self.progress_callback:
-                    self.progress_callback(f"转换完成！总共处理了 {self.vector_count} 个向量块")
+                    self.progress_callback(f"Done! {self.vector_count} vectors processed")
                 return 0
         
         except Exception as e:
-            Logger.error(f"GASC转换失败: {e}", exc_info=True)
+            Logger.error(f"GASC conversion failed: {e}", exc_info=True)
             if self.progress_callback:
-                self.progress_callback(f"转换失败: {e}")
+                self.progress_callback(f"Conversion failed: {e}")
             if self.debug:
                 import traceback
                 traceback.print_exc()

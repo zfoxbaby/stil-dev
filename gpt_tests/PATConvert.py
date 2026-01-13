@@ -469,15 +469,15 @@ class PATConvert:
         result = new_converter.refresh_signals_and_remap(old_mapping)
         
         if not result['success']:
-            raise Exception(f"信号读取失败: {result['error']}")
+            raise Exception(f"Signal read failed: {result['error']}")
         
         if result['unmapped_signals']:
-            progress_callback(f"⚠ 检测到 {len(result['unmapped_signals'])} 个新信号未映射")
+            progress_callback(f"⚠ {len(result['unmapped_signals'])} unmapped signals")
         
         self.current_parser = new_converter
         
         # 调用VCT转换
-        progress_callback(f"通道映射配置: {len(result['new_mapping'])} 个信号")
+        progress_callback(f"Channel mapping: {len(result['new_mapping'])} signals")
         convert_result = new_converter.convert()
         if convert_result == -1:
             self.log(f"{target_file_path} conversion stopped by user!")

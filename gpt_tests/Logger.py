@@ -206,7 +206,7 @@ class STILLogger:
                 self.progress_callback(f"[ERROR] {error_msg}")
                 # 只显示最后几行堆栈
                 tb_short = tb_lines[-3:] if len(tb_lines) > 3 else tb_lines
-                self.progress_callback(f"堆栈: {''.join(tb_short)}")
+                self.progress_callback(f"Stack: {''.join(tb_short)}")
         
         def threading_exception_handler(args):
             """线程异常处理器"""
