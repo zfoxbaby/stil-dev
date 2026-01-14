@@ -17,7 +17,7 @@ class TimingData:
     wfcs_strobe = ["L", "H", "X", "T", "V", "l", "h", "x", "t", "v"]
     wfcs_clock = ["D", "U", "N", "Z", "P"]
     # 典型波形
-    wfcs_mappint = {
+    wfcs_mapping = {
         "D": ["0", "NORMAL"],
         "U": ["1", "NORMAL"],
 
@@ -98,12 +98,12 @@ class TimingData:
         # 如果所有子节点中同时包含UUU和UDU，就把edge_format变成RO, vector_replacement不需要填写，
         for td in self.twas:
             td_pattern = td.get_edge_pattern()
-            if td_pattern not in self.wfcs_mappint:
-                handler.on_parse_error(f"Warning: Invalid edge pattern {td_pattern} for {td.signal}:{td.wfc}")
+            if td_pattern not in self.wfcs_mapping:
+                handler.on_parse_error(f"Invalid edge pattern {td_pattern} for {td.signal}:{td.wfc}")
                 td.vector_replacement = "X"
                 continue
             else:
-                td.vector_replacement, type  = self.wfcs_mappint.get(td_pattern, [td.wfc, ""])
+                td.vector_replacement, type  = self.wfcs_mapping.get(td_pattern, [td.wfc, ""])
                 # 优先根据信号类型判断：InOut类型信号认为是STROBE
                 if signal_type:
                     if signal_type == "Out":
@@ -153,4 +153,5 @@ class TimingData:
             result = result.replace("P", "")
             result = result.replace("X", "")
             result = result.replace("Z", "")
+        result = ''.join(k for k, _ in groupby(result))
         return result

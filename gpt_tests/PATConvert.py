@@ -102,6 +102,7 @@ class PATConvert:
         
         # 配置红色文本标签（用于错误消息）
         self.text_area.tag_config("error", foreground="red")
+        self.text_area.tag_config("warning", foreground="orange")
 
     def log(self, msg):
         """在进度框输出日志，自动管理文本长度避免内存溢出"""
@@ -126,6 +127,18 @@ class PATConvert:
     def log_error(self, msg):
         """在进度框输出错误日志（红色字体）"""
         self.text_area.insert(tk.END, msg + "\n", "error")
+        scroll_position = self.text_area.yview()
+        at_bottom = scroll_position[1] >= 0.95
+        line_count = int(self.text_area.index('end-1c').split('.')[0])
+        if line_count > 10000:
+            self.text_area.delete("1.0", "5001.0")
+            self.text_area.insert("1.0", "... [Log truncated, showing last 5000 lines] ...\n")
+        if at_bottom:
+            self.text_area.see(tk.END)
+
+    def log_warn(self, msg):
+        """在进度框输出警告日志（黄色字体）"""
+        self.text_area.insert(tk.END, msg + "\n", "warning")
         scroll_position = self.text_area.yview()
         at_bottom = scroll_position[1] >= 0.95
         line_count = int(self.text_area.index('end-1c').split('.')[0])
@@ -300,84 +313,6 @@ class PATConvert:
         # 启动线程防止 UI 卡死
         threading.Thread(target=self.convert, args=(source, target), daemon=True).start()
     
-    def _refresh_signal_mapping(self, source):
-        """重新读取信号信息并自动重新映射
-        
-        Args:
-            source: STIL文件或文件夹路径
-            
-        Returns:
-            bool: True表示继续转换，False表示取消或失败
-        """
-        self.log("=" * 50)
-        self.log("Refreshing signal mapping...")
-        
-        # 确定要解析的文件
-        if self.source_type.get() == "Specify File":
-            stil_file = source
-        else:  # Standard - 文件夹模式，取第一个.stil文件
-            stil_files = [f for f in os.listdir(source) if f.endswith(".stil")]
-            if stil_files:
-                stil_file = os.path.join(source, stil_files[0])
-            else:
-                self.log("Warning: No STIL file found, skip signal refresh")
-                self.log("=" * 50)
-                return True  # 继续使用原配置
-        
-        # 保存旧的映射配置
-        old_mapping = self.vct_converter.get_channel_mapping().copy()
-        old_signal_count = len(old_mapping)
-        self.log(f"Currently {old_signal_count} signals mapped")
-    
-        
-        # 创建新的转换器实例并刷新信号
-        temp_converter = STILToVCTStream(stil_file, progress_callback=self.progress_callback, debug=self.vct_converter.debug)
-        result = temp_converter.refresh_signals_and_remap(old_mapping)
-        
-        if not result['success']:
-            self.log(f"Warning: {result['error']}, using old config")
-            self.log("=" * 50)
-            return True  # 继续使用原配置
-        
-        # 更新转换器
-        self.vct_converter = temp_converter
-        
-        # 输出映射结果
-        self.log(f"Found {len(result['new_signals'])} signals")
-        self.log(f"✓ Remapped {len(result['mapped_signals'])} signals")
-        
-        if result['removed_signals']:
-            self.log(f"⚠ {len(result['removed_signals'])} old signals no longer exist:")
-            for sig in result['removed_signals'][:10]:  # 只显示前10个
-                self.log(f"   - {sig}")
-            if len(result['removed_signals']) > 10:
-                self.log(f"   ... and {len(result['removed_signals']) - 10} more")
-        
-        if result['unmapped_signals']:
-            self.log(f"⚠ {len(result['unmapped_signals'])} new signals unmapped:")
-            for sig in result['unmapped_signals'][:10]:  # 只显示前10个
-                self.log(f"   - {sig}")
-            if len(result['unmapped_signals']) > 10:
-                self.log(f"   ... and {len(result['unmapped_signals']) - 10} more")
-            
-            # 弹出提示
-            msg = f"Found {len(result['unmapped_signals'])} unmapped signals.\n\n"
-            if len(result['unmapped_signals']) <= 5:
-                msg += "Unmapped signals:\n" + "\n".join(f"  • {sig}" for sig in result['unmapped_signals'])
-            else:
-                msg += "Unmapped signals:\n" + "\n".join(f"  • {sig}" for sig in result['unmapped_signals'][:5])
-                msg += f"\n  ... and {len(result['unmapped_signals']) - 5} more"
-            msg += "\n\nContinue? (Unmapped signals will not be output)"
-            
-            if not messagebox.askyesno("Signal Mapping", msg):
-                self.log("User cancelled conversion")
-                self.log("=" * 50)
-                return False  # 用户取消
-        
-        self.log("Signal mapping refreshed")
-        self.log("=" * 50)
-        return True  # 继续转换
-    
     def stop_conversion(self):
         """停止当前的转换"""
         self._stop_requested = True  # 设置批量转换停止标志
@@ -393,8 +328,10 @@ class PATConvert:
 
     def progress_callback(self, message):
         """Progress callback function with real-time vector counting"""
-        if "Fail" in message or "Failed" in message or "Warning" in message or "Error" in message or "ERROR" in message:
+        if "Fail" in message or "failed" in message in message or "Error" in message or "ERROR" in message:
             self.log_error(message)
+        elif "Warning" in message or "warning" in message:
+            self.log_warn(message)
         else:
             self.log(message)
         # 强制UI更新，确保用户能看到进度
@@ -433,12 +370,10 @@ class PATConvert:
             total_time = end_time - start_time
             self.log(f"End time: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
             self.log(f"Total conversion time: {total_time.total_seconds():.2f} seconds")
-            self.log(f"{target_file_path} conversion successfully!")
         except Exception as e:
-            Logger.error(f"File conversion failed: {e}", exc_info=True)
             end_time = datetime.now()
             total_time = end_time - start_time
-            self.log(f"Conversion failed after {total_time.total_seconds():.2f} seconds: {str(e)}")
+            Logger.error(f"Conversion failed after {total_time.total_seconds():.2f} seconds: {str(e)}", exc_info=True)
             raise
         finally:
             self.current_parser = None  # 清除parser实例
@@ -451,6 +386,7 @@ class PATConvert:
         result = parser.convert()
         if result == -1:
             self.log(f"{target_file_path} conversion stopped by user!")
+        self.current_parser.close()
     
     def convert_file_vct(self, source_file, target_file_path, progress_callback):
         """VCT格式转换（使用STILToVCTStream）"""
@@ -474,7 +410,8 @@ class PATConvert:
         if result['unmapped_signals']:
             progress_callback(f"⚠ {len(result['unmapped_signals'])} unmapped signals")
         
-        self.current_parser = new_converter
+        # 设置 current_parser 以便 stop_conversion 能够停止它
+        self.vct_converter = new_converter
         
         # 调用VCT转换
         progress_callback(f"Channel mapping: {len(result['new_mapping'])} signals")
@@ -482,12 +419,10 @@ class PATConvert:
         if convert_result == -1:
             self.log(f"{target_file_path} conversion stopped by user!")
 
-        self.current_parser.close()
+        new_converter.close()
 
     def convert(self, source, target):
-        self.log(f"Starting conversion...")
-        self.log(f"Source: {source}")
-        self.log(f"Target: {target}")
+        self.log(f"* * * Starting conversion...")
         self.log(f"Type: {self.source_type.get()}")
         try:
             if self.source_type.get() == "Specify File":
@@ -516,7 +451,6 @@ class PATConvert:
                         self.convert_file(source_file, target)
                     except Exception as e:
                         Logger.error(f"File {filename} conversion failed: {e}", exc_info=True)
-                        self.log(f"File {filename} failed: {str(e)}")
                         # 继续转换下一个文件
                         continue
                     

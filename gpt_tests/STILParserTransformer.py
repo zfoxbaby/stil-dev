@@ -224,7 +224,7 @@ class ParserState:
                         old_rpt_data.append((item[0], item[1], item[2], int(item[3]) - 1, item[4], item[5]))
                         # 新指令行
                         new_instr_data.append((item[0], item[1], instr, param, 
-                                              label if label else item[4], item[5]))
+                                              "", item[5]))
                     # 写出 RPT 减一后的行
                     handler.on_vector(old_rpt_data, existing_instr, str(int(existing_param) - 1))
                     self.vector_count += 1
@@ -1421,8 +1421,6 @@ class PatternStreamParserTransformer:
             if not first_line.startswith('STIL 1.0;'):
                 self.handler.on_parse_error("Invalid STIL file")
                 return 0
-                
-        self.handler.on_log("Reading STIL file...")
 
         if not os.path.exists(self.stil_file):
             self.handler.on_parse_error(f"File not found: {self.stil_file}")
@@ -1511,8 +1509,8 @@ class PatternStreamParserTransformer:
             
             if print_log:
                 self.handler.on_log(f"Using {len(self.used_signals)} signals:")
-                for i, sig in enumerate(self.used_signals):
-                    self.handler.on_log(f"  {i+1}. {sig}")
+            #     for i, sig in enumerate(self.used_signals):
+            #         self.handler.on_log(f"  {i+1}. {sig}")
             
             return self.used_signals
         

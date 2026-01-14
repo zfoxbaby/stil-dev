@@ -752,10 +752,10 @@ class STILToVCTStream(STILEventHandler):
         """解析错误"""
         if self.progress_callback:
             if statement:
-                self.progress_callback(f"VEC:{self.pattern_parser0.state.vector_count} Error: {error_msg}\n{statement[:100]}...")
+                self.progress_callback(f"Warning: {error_msg}, SEQ: {statement[:100]}...")
             else:
-                self.progress_callback(f"VEC:{self.pattern_parser0.state.vector_count} Error: {error_msg}")
-        Logger.error(error_msg, statement)
+                self.progress_callback(f"Warning: {error_msg}")
+        
     
     def generate_vct_vector_section(self, output_file) -> int:
         """生成VCT文件Vector部分（第四部分）- 流式写入
@@ -786,10 +786,6 @@ class STILToVCTStream(STILEventHandler):
         # 写入标题行
         for line in self._generate_title_lines():
             output_file.write(line + "\n")
-
-        # 初始化 Pattern 解析器并开始解析
-        if self.progress_callback:
-            self.progress_callback("Parsing patterns...")
         
         # 解析 Pattern（通过回调写入）
         vector_count = self.pattern_parser0.parse_patterns()
