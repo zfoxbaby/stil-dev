@@ -708,11 +708,11 @@ class STILToVCTStream(STILEventHandler):
         # 进度更新
         vector_count = self.pattern_parser0.state.vector_count
         read_size = self.pattern_parser0.state.read_size
-        update_interval = 2000 if vector_count <= 10000 else 5000
+        update_interval = 2000 if vector_count <= 10000 else 10000
         if self.progress_callback and vector_count % update_interval == 0:
             progress = read_size / self.file_size * 100 if self.file_size > 0 else 100
             tt =  datetime.now() - self.current_time
-            self.progress_callback(f"Processed {vector_count:,} vectors, {progress:.1f}%...{tt.total_seconds():.2f}S")
+            self.progress_callback(f"Processed {vector_count:,} vectors, {progress:.1f}%...[{tt.total_seconds():.2f}S]")
             self.current_time = datetime.now()
         if vector_count % 10000 == 0:
              self.output_file.flush()
