@@ -25,6 +25,7 @@ from STILParserUtils import STILParserUtils
 from STILEventHandler import STILEventHandler
 from htol.TimingFormatter import TimingFormatter
 from STILParserTransformer import PatternStreamParserTransformer, format_vct_instruction
+from datetime import datetime
 import Logger
 
 try:
@@ -46,7 +47,8 @@ class STILToVCTStream(STILEventHandler):
         self.file_size = -1
         self.progress_callback = progress_callback
         self.debug = debug
-        
+        self.current_time = datetime.now()
+
         # 解析结果存储
         self.signals: Dict[str, str] = {}  # {信号名: 信号类型}
         self.signal_groups: Dict[str, List[str]] = {}
@@ -510,12 +512,19 @@ class STILToVCTStream(STILEventHandler):
         
         # 使用上一行的通道数据作为初始值（自动补充缺少的信号值）
         # 这样当某个 V 块的信号数少于前一个 V 块时，缺少的信号会使用上一行的值
-        channel_data = self.last_channel_data.copy()
+        channel_data = self.last_channel_data
         
         label_str = ""
         vector_address = 0
         micro_instr = ""
         instr_str = ""
+        
+        # 缓存常用变量，减少属性查找
+        signal_groups = self.signal_groups
+        signals_dict = self.signals
+        signal_to_channels = self.signal_to_channels
+        wfc_map = self.wfc_replacement_map
+        current_wft = self.current_wft
         
         # 遍历每个 pat_header 项和对应的 WFC
         # 6 元组：(signal, data, instr, param, label, vector_address)
@@ -526,36 +535,31 @@ class STILToVCTStream(STILEventHandler):
             vector_address = vec_addr
             
             # 获取该 pat_key 对应的信号列表
-            if pat_key in self.signal_groups:
-                signals = self.signal_groups[pat_key]
-            elif pat_key in self.signals:
-                signals = [pat_key]
-            else:
+            signals = signal_groups.get(pat_key) or (signals_dict.get(pat_key) and [pat_key])
+            if not signals:
                 continue
             
             if label:
                 label_str = label
             
             # 遍历信号和对应的 WFC 字符
+            wfc_len = len(wfc_str)
             for idx, signal in enumerate(signals):
-                if idx >= len(wfc_str):
-                    continue
+                if idx >= wfc_len:
+                    break
                 wfc_char = wfc_str[idx]
                 
-                # 应用 WFC 替换
-                key = (self.current_wft, signal, wfc_char)
-                if key in self.wfc_replacement_map:
-                    wfc_char = self.wfc_replacement_map[key]
+                # 应用 WFC 替换（使用 get 替代 in + 索引）
+                wfc_char = wfc_map.get((current_wft, signal, wfc_char), wfc_char)
                 
                 # 找到该信号绑定的所有通道，填入 WFC
-                if signal in self.signal_to_channels:
-                    for channel in self.signal_to_channels[signal]:
-                        if 0 <= channel <= 255:
-                            channel_data[channel] = wfc_char
+                channels = signal_to_channels.get(signal)
+                if channels:
+                    for channel in channels:
+                        channel_data[channel] = wfc_char
         
-        # 保存当前通道数据，供下一行使用（自动补充缺少的信号值）
-        self.last_channel_data = channel_data.copy()
-        
+        # 预计算固定部分，减少 f-string 拼接开销
+        # 格式: "  INSTR         % MR GTE RESERVED         SYN T C  CHANNELS ; 0xADDR"
         channel_str = "".join(channel_data)
         
         # Loop 起始行，如果没有 Label 就用 vector_address 生成
@@ -707,8 +711,9 @@ class STILToVCTStream(STILEventHandler):
         update_interval = 2000 if vector_count <= 10000 else 5000
         if self.progress_callback and vector_count % update_interval == 0:
             progress = read_size / self.file_size * 100 if self.file_size > 0 else 100
-            self.progress_callback(f"Processed {vector_count:,} vectors, {progress:.1f}%...")
-           
+            tt =  datetime.now() - self.current_time
+            self.progress_callback(f"Processed {vector_count:,} vectors, {progress:.1f}%...{tt.total_seconds():.2f}S")
+            self.current_time = datetime.now()
         if vector_count % 10000 == 0:
              self.output_file.flush()
     
@@ -736,7 +741,7 @@ class STILToVCTStream(STILEventHandler):
             if label:
                 self.output_file.write(f"{label}:\n")
             self.output_file.write(line + "\n")
-        self.output_file.flush()
+        # 移除每次调用都 flush，改为依赖 on_vector 中的定期 flush
 
     def on_parse_complete(self, vector_count: int) -> None:
         """解析完成"""

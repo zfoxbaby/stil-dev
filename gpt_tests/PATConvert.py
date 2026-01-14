@@ -182,7 +182,7 @@ class PATConvert:
     def select_source_file(self):
         file_path = filedialog.askopenfilename(
             title="Select Source File",
-            filetypes=[("STIL/WGL files", "*.stil"), ("All files", "*.*")]
+            filetypes=[("STIL files", "*.stil"), ("All files", "*.*")]
         )
         if file_path:
             self.source_var.set(file_path)

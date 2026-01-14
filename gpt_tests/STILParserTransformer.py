@@ -269,6 +269,11 @@ class STILParserTransformer(Transformer):
 
         self._REPEAT_PATTERN = re.compile(r'\\r(\d+)\s+([^\s\\]+)')
         self._WHITESPACE_PATTERN = re.compile(r'\s+')
+        
+        # 快速路径正则（预编译）
+        self._V_PATTERN = re.compile(r'^V\s*\{([^}]+)\}$', re.DOTALL)
+        self._VEC_DATA_PATTERN = re.compile(r'(\w+)\s*=\s*([^;]+);')
+        # self._W_PATTERN = re.compile(r'^W\s+(\w+)\s*;$')
 
     # ========================== Header 处理 ==========================
     def b_header__TITLE_STRING(self, token: Token) -> None:
@@ -550,6 +555,54 @@ class STILParserTransformer(Transformer):
         
         result = self._WHITESPACE_PATTERN.sub('', result)
         return result
+    
+    # ========================== 快速路径解析 ==========================
+    def fast_parse_v_stmt(self, statement: str) -> bool:
+        """快速解析简单 V 语句，跳过 Lark
+        
+        Args:
+            statement: 语句字符串，如 "V { sig1=data1; sig2=data2; }"
+            
+        Returns:
+            True 如果成功解析，False 如果需要用 Lark 解析
+        """
+        match = self._V_PATTERN.match(statement.strip())
+        if not match:
+            return False
+        
+        content = match.group(1)
+        vec_data = []
+        
+        for m in self._VEC_DATA_PATTERN.finditer(content):
+            signal = m.group(1).strip()
+            raw_data = m.group(2).strip()
+            
+            # 展开重复数据
+            data = self._expand_vec_data(raw_data)
+            
+            # 处理替换（Call/Macro 参数替换）
+            if self.state.replace_vector_on:
+                replace_data = self.state.replace_vector_list.get(signal)
+                if replace_data:
+                    data = replace_data
+            
+            # 6 元组：(signal, data, instr, param, label, vector_address)
+            vec_data.append((signal, data, "", "", 
+                           self.state.curr_label, self.state.vector_address))
+        
+        if not vec_data:
+            return False
+        
+        # 存入 vec_data_list
+        self.state.vec_data_list.append({"type": "vector", "data": vec_data})
+        self.state.vector_address += 1
+        self.state.curr_label = ""
+        
+        # 如果不在循环/块中，直接写出
+        if self.state.loop_deep == 0 and self.state.left_square_count == 0:
+            self._flush_vec_data_list()
+        
+        return True
     
     # ========================== Loop 语句 ==========================
     def KEYWORD_LOOP(self, token: Token) -> Dict[str, Any]:
@@ -1586,18 +1639,24 @@ class PatternStreamParserTransformer:
                     if (statement_buffer.endswith(';') and '{' not in statement_buffer and '}' not in statement_buffer
                         or ('{' in statement_buffer and '}' in statement_buffer
                         and statement_buffer.count('{') == statement_buffer.count('}'))):
-                        try:
-                            # 解析并转换
-                            tree = self.multi_parser.parse(statement_buffer)
-                            transformer.transform(tree)
-                        except LarkError as e:
-                            # 触发错误回调
-                            Logger.warning(f"解析失败(LarkError): {e}")
-                            self.handler.on_parse_error(str(e), statement_buffer)
-                           
-                        except Exception as e:
-                            Logger.error(f"解析异常: {e}", exc_info=True)
-                            self.handler.on_parse_error(str(e), "")
+                        
+                        # ===== 快速路径：简单 V/W 语句用正则解析 =====
+                        parsed = False
+                        if statement_buffer.startswith('V') and '{' in statement_buffer:
+                            # 简单 V 语句快速路径
+                            parsed = transformer.fast_parse_v_stmt(statement_buffer)
+                        
+                        if not parsed:
+                            # ===== 慢速路径：复杂语句用 Lark 解析 =====
+                            try:
+                                tree = self.multi_parser.parse(statement_buffer)
+                                transformer.transform(tree)
+                            except LarkError as e:
+                                Logger.warning(f"Parse failed (LarkError): {e}")
+                                self.handler.on_parse_error(str(e), statement_buffer)
+                            except Exception as e:
+                                Logger.error(f"Parse error: {e}", exc_info=True)
+                                self.handler.on_parse_error(str(e), "")
                         
                         buffer_lines.clear()
                
