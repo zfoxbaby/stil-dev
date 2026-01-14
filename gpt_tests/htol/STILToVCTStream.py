@@ -305,13 +305,16 @@ class STILToVCTStream(STILEventHandler):
         try:
             with open(rex_file, 'w', encoding='utf-8') as f:
                 # 写入 REX 参数（VRH, VRL, VIH）
-                rex_params = getattr(self, 'rex_params', {})
-                vrh = rex_params.get('VRH', '3.3')
-                vrl = rex_params.get('VRL', '0.0')
-                vih = rex_params.get('VIH', '4.5')
-                f.write(f"VRH,0 {vrh}\n")
-                f.write(f"VRL,0 {vrl}\n")
-                f.write(f"VIH,0 {vih}\n")
+                # rex_params = getattr(self, 'rex_params', {})
+                # vrh = rex_params.get('VRH', '3.3')
+                # vrl = rex_params.get('VRL', '0.0')
+                # vih = rex_params.get('VIH', '4.5')
+                # f.write(f"VRH,0 {vrh}\n")
+                # f.write(f"VRL,0 {vrl}\n")
+                # f.write(f"VIH,0 {vih}\n")
+                
+                f.write("MODSTADR 0\n")
+                f.write("MODEOF   0 ; change this as required\n")
                 f.write("\n")
                 
                 # 写入 Timing 信息
@@ -519,7 +522,7 @@ class STILToVCTStream(STILEventHandler):
         reserved = "." * 16   # RESERVED
         sync = "..."          # SYNC
         toen = str(rradr)     # TOEN/RRADR
-        cs = "1"              # CS (固定1)
+        cs = "0"              # CS (固定1)
         
         # 使用上一行的通道数据作为初始值（自动补充缺少的信号值）
         # 这样当某个 V 块的信号数少于前一个 V 块时，缺少的信号会使用上一行的值
@@ -606,7 +609,7 @@ class STILToVCTStream(STILEventHandler):
         reserved = "." * 16   # RESERVED
         sync = "..."          # SYNC
         toen = str(rradr)     # TOEN/RRADR
-        cs = "1"              # CS (固定1)
+        cs = "0"              # CS (固定1)
         
         # 通道数据全为 "."
         channel_str = "." * 256
@@ -630,7 +633,7 @@ class STILToVCTStream(STILEventHandler):
         reserved = "." * 16   # RESERVED
         sync = "..."          # SYNC
         toen = "0"            # TOEN/RRADR
-        cs = "1"              # CS
+        cs = "0"              # CS
         
         # 通道数据全为 "."
         channel_str = "." * 256

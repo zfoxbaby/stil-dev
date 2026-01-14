@@ -23,13 +23,13 @@ class TimingData:
 
         "UD": ["0", "DNRZ"],
         "DU": ["1", "DNRZ"],
-        "UDU": ["N", ""],
-        "DUD": ["P", ""],
+        "UDU": ["N", "NORMAL"],
+        "DUD": ["P", "NORMAL"],
 
-        "N": ["0", ""],
-        "P": ["Q", ""],
+        "N": ["0", "NORMAL"],
+        "P": ["Q", "NORMAL"],
 
-        "Z": ["X", ""],
+        "Z": ["X", "NORMAL"],
         "": ["X", ""],
 
         "L": ["L", "C"],
@@ -38,7 +38,7 @@ class TimingData:
         "X": ["X", "C"],
         "T": ["T", "C"],
         "V": ["V", "C"],
-        "l": ["l", "CC"],
+        "l": ["l", "C"],
         "h": ["h", "C"],
         "t": ["t", "C"],
         "v": ["v", "C"],
@@ -116,6 +116,8 @@ class TimingData:
                         td.is_strobe = -1
                 if td.is_strobe == -1:
                     td.is_strobe = 0 if type == "C" else 1
+                if type != "C":
+                    td.edge_format = type
 
     def get_edge_count(self) -> int:
             """获取有效边沿数量（时间和边沿都存在才算）"""

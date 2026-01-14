@@ -189,11 +189,12 @@ class TimingFormatter:
             
             # 如果td.is_strobe == 2，则认为既是strobe又是clock
             if td.is_strobe == 2:
-                if signal not in processed_signals_clock:
+                if signal not in processed_signals_clock and td.edge_format:
                     processed_signals_clock.add(signal)
                     channel_str = self.format_channels(channels)
                     edge_str = self.format_edges(edge1, edge2)
-                    clock_lines.append(f"CLOCK{rradr} {channel_str} {edge_str} {td.edge_format}")
+                    clock_lines.append(f"CLOCK{rradr} {channel_str} {edge_str}")
+                    clock_lines.append(f"FORMAT {channel_str} {td.edge_format}")
                 if signal not in processed_signals_strobe:
                     processed_signals_strobe.add(signal)
                     channel_str = self.format_channels(channels)
@@ -211,11 +212,9 @@ class TimingFormatter:
                     processed_signals_clock.add(signal)
                     channel_str = self.format_channels(channels)
                     edge_str = self.format_edges(edge1, edge2)
-                    # 使用 td.edge_format（已在解析时计算好）
-                    parent_timing_data = td
-                    if td.parent is not None:
-                        parent_timing_data = td.parent
-                    clock_lines.append(f"CLOCK{rradr} {channel_str} {edge_str} {parent_timing_data.edge_format}")
+                    clock_lines.append(f"CLOCK{rradr} {channel_str} {edge_str}")
+                    if td.edge_format:
+                        clock_lines.append(f"FORMAT {channel_str} {td.edge_format}")
 
         
         lines.extend(clock_lines)
