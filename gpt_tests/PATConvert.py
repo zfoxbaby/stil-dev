@@ -13,7 +13,7 @@ class PATConvert:
     def __init__(self, root):
         self.root = root
         root.geometry("900x550")
-        self.root.title("STIL Converter")
+        self.root.title("STILConverter")
         
         # 设置窗口和任务栏图标
         try:
