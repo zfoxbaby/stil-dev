@@ -304,6 +304,17 @@ class STILToVCTStream(STILEventHandler):
         
         try:
             with open(rex_file, 'w', encoding='utf-8') as f:
+                # 写入 REX 参数（VRH, VRL, VIH）
+                rex_params = getattr(self, 'rex_params', {})
+                vrh = rex_params.get('VRH', '3.3')
+                vrl = rex_params.get('VRL', '0.0')
+                vih = rex_params.get('VIH', '4.5')
+                f.write(f"VRH,0 {vrh}\n")
+                f.write(f"VRL,0 {vrl}\n")
+                f.write(f"VIH,0 {vih}\n")
+                f.write("\n")
+                
+                # 写入 Timing 信息
                 f.write(timing_content)
                 f.write("\n")
             

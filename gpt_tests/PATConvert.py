@@ -13,7 +13,22 @@ class PATConvert:
     def __init__(self, root):
         self.root = root
         root.geometry("900x550")
-        self.root.title("File Converter")
+        self.root.title("STIL Converter")
+        
+        # 设置窗口和任务栏图标
+        try:
+            import sys
+            if getattr(sys, 'frozen', False):
+                # 打包后的路径
+                base_path = sys._MEIPASS
+            else:
+                # 开发环境路径
+                base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            icon_path = os.path.join(base_path, "STIL1.ico")
+            if os.path.exists(icon_path):
+                root.iconbitmap(icon_path)
+        except Exception:
+            pass
         
         # 用于存储当前正在运行的转换器实例
         self.current_parser = None

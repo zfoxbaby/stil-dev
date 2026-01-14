@@ -105,6 +105,34 @@ class ChannelMappingDialog:
             if i % 2 == 0:
                 self.sheet.highlight_rows(rows=[i], bg="#f5f5f5")
         
+        # ============ REX 参数设置区域 ============
+        # frame_rex = ttk.LabelFrame(self.top, text="REX Parameters")
+        # frame_rex.pack(fill="x", padx=10, pady=5)
+        
+        # # 从 vct_converter 获取现有值或使用默认值
+        # rex_params = getattr(vct_converter, 'rex_params', {})
+        
+        # # VRH
+        # frame_vrh = ttk.Frame(frame_rex)
+        # frame_vrh.pack(side="left", padx=15, pady=5)
+        # ttk.Label(frame_vrh, text="VRH:").pack(side="left")
+        # self.vrh_var = tk.StringVar(value=rex_params.get('VRH', '3.3'))
+        # ttk.Entry(frame_vrh, textvariable=self.vrh_var, width=8).pack(side="left", padx=5)
+        
+        # # VRL
+        # frame_vrl = ttk.Frame(frame_rex)
+        # frame_vrl.pack(side="left", padx=15, pady=5)
+        # ttk.Label(frame_vrl, text="VRL:").pack(side="left")
+        # self.vrl_var = tk.StringVar(value=rex_params.get('VRL', '0.0'))
+        # ttk.Entry(frame_vrl, textvariable=self.vrl_var, width=8).pack(side="left", padx=5)
+        
+        # # VIH
+        # frame_vih = ttk.Frame(frame_rex)
+        # frame_vih.pack(side="left", padx=15, pady=5)
+        # ttk.Label(frame_vih, text="VIH:").pack(side="left")
+        # self.vih_var = tk.StringVar(value=rex_params.get('VIH', '4.5'))
+        # ttk.Entry(frame_vih, textvariable=self.vih_var, width=8).pack(side="left", padx=5)
+        
         # 按钮区域
         frame_buttons = ttk.Frame(self.top)
         frame_buttons.pack(fill="x", padx=10, pady=10)
@@ -253,6 +281,15 @@ class ChannelMappingDialog:
             )
             if not result:
                 return
+        
+        # 保存 REX 参数
+        # rex_params = {
+        #     'VRH': self.vrh_var.get().strip() or '3.3',
+        #     'VRL': self.vrl_var.get().strip() or '0.0',
+        #     'VIH': self.vih_var.get().strip() or '4.5'
+        # }
+        # self.vct_converter.rex_params = rex_params
+        # self.log(f"REX params: VRH={rex_params['VRH']}, VRL={rex_params['VRL']}, VIH={rex_params['VIH']}")
         
         # 保存映射
         if mapping:

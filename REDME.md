@@ -11,8 +11,8 @@ pyinstaller --onedir --windowed --name="STIL转换工具" gpt_tests/PATConvert.p
 # 打包成单个exe文件（推荐）
 pyinstaller --onefile --windowed --name="STIL转换工具" gpt_tests/PATConvert.py
 
-# 添加图标（如果有）
-pyinstaller --onefile --windowed --icon=icon.ico --name="STIL转换工具" gpt_tests/PATConvert.py
+# 添加图标（推荐使用这个）
+pyinstaller --onefile --windowed --icon=STIL1.ico --add-data "STIL1.ico;." --name="STIL Util" gpt_tests/PATConvert.py
 
 --onefile：打包成单个exe文件
 --onedir：打包成文件夹（exe + 依赖文件）
